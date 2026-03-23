@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Coin base (large circle) -->
+    <path
+        android:fillColor="#FFD54F"
+        android:pathData="M54,54m-24,0a24,24 0,1 1,48 0a24,24 0,1 1,-48 0" />
+
+    <!-- Coin inner ring -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M54,54m-20,0a20,20 0,1 1,40 0a20,20 0,1 1,-40 0" />
+
+    <!-- Coin inner highlight -->
+    <path
+        android:fillColor="#FFD54F"
+        android:pathData="M54,54m-16,0a16,16 0,1 1,32 0a16,16 0,1 1,-32 0" />
+
+    <!-- Upward arrow (savings growth) shaft -->
+    <path
+        android:fillColor="#00796B"
+        android:pathData="M51,60v-14h6v14z" />
+
+    <!-- Upward arrow head -->
+    <path
+        android:fillColor="#00796B"
+        android:pathData="M54,40l-8,8h5v0h6v0h5z" />
+
+    <!-- Small plus sign bottom-left -->
+    <path
+        android:fillColor="#4DB6AC"
+        android:pathData="M53,62h2v4h-2z" />
+    <path
+        android:fillColor="#4DB6AC"
+        android:pathData="M52,64h4v2h-4z" />
+</vector>
