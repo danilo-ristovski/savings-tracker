@@ -1,6 +1,5 @@
 package com.savings.tracker.presentation.pin
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -34,7 +33,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -51,7 +49,6 @@ fun PinSetupScreen(
     viewModel: PinViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         viewModel.initForSetup()
@@ -61,10 +58,13 @@ fun PinSetupScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is PinEvent.PinSetSuccess -> {
-                    Toast.makeText(context, "PIN set successfully!", Toast.LENGTH_SHORT).show()
                     navController.navigate(Routes.MAIN) {
                         popUpTo(Routes.PIN_SETUP) { inclusive = true }
                     }
+                    navController.currentBackStackEntry?.savedStateHandle?.set(
+                        "snackbar_message",
+                        "PIN set successfully!"
+                    )
                 }
                 else -> {}
             }
@@ -76,6 +76,7 @@ fun PinSetupScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center

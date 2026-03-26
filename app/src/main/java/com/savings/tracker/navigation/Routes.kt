@@ -6,4 +6,5 @@ object Routes {
     const val MAIN = "main"
     const val SETTINGS = "settings"
     const val TRENDS = "trends"
+    const val TRASH = "trash"
 }

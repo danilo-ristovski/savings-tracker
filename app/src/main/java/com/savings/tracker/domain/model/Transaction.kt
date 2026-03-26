@@ -10,6 +10,25 @@ import kotlinx.serialization.encoding.Encoder
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
+object NullableLocalDateTimeSerializer : KSerializer<LocalDateTime?> {
+    private val formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
+
+    override val descriptor: SerialDescriptor =
+        PrimitiveSerialDescriptor("NullableLocalDateTime", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: LocalDateTime?) {
+        if (value != null) encoder.encodeString(value.format(formatter))
+    }
+
+    override fun deserialize(decoder: Decoder): LocalDateTime? {
+        return try {
+            LocalDateTime.parse(decoder.decodeString(), formatter)
+        } catch (e: Exception) {
+            null
+        }
+    }
+}
+
 object LocalDateTimeSerializer : KSerializer<LocalDateTime> {
     private val formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
 
@@ -34,5 +53,7 @@ data class Transaction(
     val date: LocalDateTime,
     val note: String = "",
     @Serializable(with = LocalDateTimeSerializer::class)
-    val createdAt: LocalDateTime = LocalDateTime.now()
+    val createdAt: LocalDateTime = LocalDateTime.now(),
+    @Serializable(with = NullableLocalDateTimeSerializer::class)
+    val deletedAt: LocalDateTime? = null
 )

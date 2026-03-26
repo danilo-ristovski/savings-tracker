@@ -32,6 +32,8 @@ class PreferencesManager @Inject constructor(
         val LOCKOUT_TIMESTAMP = longPreferencesKey("lockout_timestamp")
         val LAST_FEE_APPLIED_MONTH = stringPreferencesKey("last_fee_applied_month")
         val IS_LOCKED_PERMANENTLY = booleanPreferencesKey("is_locked_permanently")
+        val TRASH_RETENTION_DAYS = intPreferencesKey("trash_retention_days")
+        val DEMO_MODE = booleanPreferencesKey("demo_mode")
     }
 
     // Encrypted PIN
@@ -104,6 +106,24 @@ class PreferencesManager @Inject constructor(
 
     suspend fun setIsLockedPermanently(value: Boolean) {
         context.dataStore.edit { prefs -> prefs[Keys.IS_LOCKED_PERMANENTLY] = value }
+    }
+
+    // Trash Retention Days
+    val trashRetentionDaysFlow: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[Keys.TRASH_RETENTION_DAYS] ?: 30
+    }
+
+    suspend fun setTrashRetentionDays(value: Int) {
+        context.dataStore.edit { prefs -> prefs[Keys.TRASH_RETENTION_DAYS] = value }
+    }
+
+    // Demo Mode
+    val demoModeFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.DEMO_MODE] ?: false
+    }
+
+    suspend fun setDemoMode(value: Boolean) {
+        context.dataStore.edit { prefs -> prefs[Keys.DEMO_MODE] = value }
     }
 
     // Clear All

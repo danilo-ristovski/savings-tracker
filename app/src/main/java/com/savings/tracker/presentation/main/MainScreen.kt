@@ -1,5 +1,6 @@
 package com.savings.tracker.presentation.main
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,6 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
@@ -31,6 +35,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,7 +49,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.savings.tracker.domain.model.TransactionType
 import com.savings.tracker.navigation.Routes
+import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,9 +63,30 @@ fun MainScreen(
     val state by viewModel.state.collectAsState()
     var showTransactionDialog by remember { mutableStateOf(false) }
     var transactionType by remember { mutableStateOf(TransactionType.DEPOSIT) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val dateFormatter = remember {
         DateTimeFormatter.ofPattern("dd.MM.yyyy. HH:mm")
+    }
+
+    // Observe cross-screen snackbar messages
+    LaunchedEffect(Unit) {
+        val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
+        savedStateHandle?.getLiveData<String>("snackbar_message")?.observeForever { message ->
+            if (!message.isNullOrEmpty()) {
+                savedStateHandle.remove<String>("snackbar_message")
+                // launch snackbar in a coroutine
+            }
+        }
+    }
+
+    val currentEntry = navController.currentBackStackEntry
+    val snackbarMessage = currentEntry?.savedStateHandle?.get<String>("snackbar_message")
+    LaunchedEffect(snackbarMessage) {
+        snackbarMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            currentEntry.savedStateHandle?.remove<String>("snackbar_message")
+        }
     }
 
     Scaffold(
@@ -88,7 +117,8 @@ fun MainScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         if (state.isLoading) {
             Box(
@@ -106,7 +136,7 @@ fun MainScreen(
                     .padding(paddingValues)
                     .padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically)
             ) {
                 Card(
                     modifier = Modifier
@@ -132,7 +162,7 @@ fun MainScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Text(
-                            text = "%.2f RSD".format(state.balance),
+                            text = "${formatAmountRsd(state.balance)} RSD",
                             style = MaterialTheme.typography.displayMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -157,7 +187,7 @@ fun MainScreen(
                                 MaterialTheme.colorScheme.error
                             }
                             Text(
-                                text = "Last change: $sign${"%.2f".format(change)} RSD",
+                                text = "Last change: $sign${formatAmountRsd(change)} RSD",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = color
@@ -173,25 +203,70 @@ fun MainScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                // Next fee payment info
+                if (state.monthlyFee > 0) {
+                    val now = LocalDate.now()
+                    val nextFeeDate = if (now.dayOfMonth == 1) now else now.withDayOfMonth(1).plusMonths(1)
+                    val daysUntil = ChronoUnit.DAYS.between(now, nextFeeDate)
+                    val feeInfoText = when {
+                        daysUntil == 0L -> "Today"
+                        daysUntil == 1L -> "Tomorrow"
+                        else -> {
+                            val feeDateFormatted = nextFeeDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy."))
+                            "$feeDateFormatted ($daysUntil days)"
+                        }
+                    }
 
-                Row(
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        ),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Next bank fee",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    text = feeInfoText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            Text(
+                                text = "-${formatAmountRsd(state.monthlyFee)} RSD",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
                         tooltip = { PlainTooltip { Text("Add a deposit to your savings") } },
-                        state = rememberTooltipState(),
-                        modifier = Modifier.weight(1f)
+                        state = rememberTooltipState()
                     ) {
                         androidx.compose.material3.Button(
                             onClick = {
                                 transactionType = TransactionType.DEPOSIT
                                 showTransactionDialog = true
                             },
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary
                             ),
                             modifier = Modifier.fillMaxWidth()
@@ -208,17 +283,17 @@ fun MainScreen(
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
                         tooltip = { PlainTooltip { Text("Withdraw from your savings") } },
-                        state = rememberTooltipState(),
-                        modifier = Modifier.weight(1f)
+                        state = rememberTooltipState()
                     ) {
                         OutlinedButton(
                             onClick = {
                                 transactionType = TransactionType.WITHDRAWAL
                                 showTransactionDialog = true
                             },
-                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                            colors = ButtonDefaults.outlinedButtonColors(
                                 contentColor = MaterialTheme.colorScheme.error
                             ),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(
@@ -226,7 +301,7 @@ fun MainScreen(
                                 contentDescription = null,
                                 modifier = Modifier.padding(end = 8.dp)
                             )
-                            Text("Withdraw")
+                            Text("Take from Savings")
                         }
                     }
                 }

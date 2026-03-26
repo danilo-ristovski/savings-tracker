@@ -61,4 +61,36 @@ class TransactionRepositoryImpl @Inject constructor(
     override suspend fun getAllTransactionsList(): List<Transaction> {
         return transactionDao.getAllTransactionsList().map { it.toTransaction() }
     }
+
+    override suspend fun softDeleteTransaction(id: Long) {
+        val timestamp = System.currentTimeMillis()
+        transactionDao.softDelete(id, timestamp)
+    }
+
+    override suspend fun restoreTransaction(id: Long) {
+        transactionDao.restoreDeleted(id)
+    }
+
+    override fun getDeletedTransactions(): Flow<List<Transaction>> {
+        return transactionDao.getDeletedTransactions().map { entities ->
+            entities.map { it.toTransaction() }
+        }
+    }
+
+    override suspend fun permanentlyDeleteOlderThan(cutoff: LocalDateTime) {
+        val cutoffMillis = cutoff.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        transactionDao.permanentlyDeleteOlderThan(cutoffMillis)
+    }
+
+    override suspend fun permanentlyDeleteTransaction(transaction: Transaction) {
+        transactionDao.permanentlyDelete(transaction.id)
+    }
+
+    override suspend fun emptyTrash() {
+        transactionDao.emptyTrash()
+    }
+
+    override suspend fun upsertTransactions(transactions: List<Transaction>) {
+        transactionDao.upsertAll(transactions.map { it.toEntity() })
+    }
 }

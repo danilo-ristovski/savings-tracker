@@ -35,7 +35,7 @@ abstract class AppModule {
                 context,
                 SavingsDatabase::class.java,
                 "savings_database"
-            ).build()
+            ).addMigrations(SavingsDatabase.MIGRATION_1_2).build()
         }
 
         @Provides

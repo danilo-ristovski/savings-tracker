@@ -23,7 +23,8 @@ data class MainUiState(
     val lastUpdateDate: LocalDateTime? = null,
     val lastChange: Double? = null,
     val lastChangeType: TransactionType? = null,
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val monthlyFee: Double = 0.0,
 )
 
 @HiltViewModel
@@ -61,6 +62,12 @@ class MainViewModel @Inject constructor(
                         lastChangeType = lastTransaction?.type
                     )
                 }
+            }
+        }
+
+        viewModelScope.launch {
+            preferencesManager.monthlyFeeFlow.collect { fee ->
+                _state.update { it.copy(monthlyFee = fee) }
             }
         }
     }

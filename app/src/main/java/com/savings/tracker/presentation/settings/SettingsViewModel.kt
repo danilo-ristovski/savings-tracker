@@ -6,8 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.savings.tracker.data.preferences.PreferencesManager
 import com.savings.tracker.data.security.PinEncryption
 import com.savings.tracker.domain.model.ThemeMode
+import com.savings.tracker.domain.model.Transaction
+import com.savings.tracker.domain.model.TransactionType
+import com.savings.tracker.domain.repository.TransactionRepository
 import com.savings.tracker.domain.usecase.DeleteAllDataUseCase
 import com.savings.tracker.domain.usecase.ExportDataUseCase
+import com.savings.tracker.domain.usecase.ImportDataUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +21,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDateTime
 import javax.inject.Inject
 
 data class SettingsUiState(
@@ -24,7 +29,9 @@ data class SettingsUiState(
     val monthlyFee: String = "",
     val showDeleteConfirmation: Boolean = false,
     val exportResult: String? = null,
+    val importResult: String? = null,
     val isExporting: Boolean = false,
+    val isDemoMode: Boolean = false,
 )
 
 @HiltViewModel
@@ -32,6 +39,8 @@ class SettingsViewModel @Inject constructor(
     private val preferencesManager: PreferencesManager,
     private val exportDataUseCase: ExportDataUseCase,
     private val deleteAllDataUseCase: DeleteAllDataUseCase,
+    private val importDataUseCase: ImportDataUseCase,
+    private val repository: TransactionRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -48,10 +57,17 @@ class SettingsViewModel @Inject constructor(
         preferencesManager.monthlyFeeFlow
             .onEach { fee ->
                 _uiState.update {
-                    it.copy(monthlyFee = if (fee == 0.0) "" else fee.toBigDecimal().stripTrailingZeros().toPlainString())
+                    it.copy(monthlyFee = if (fee == 0.0) "" else fee.toLong().toString())
                 }
             }
             .launchIn(viewModelScope)
+
+        preferencesManager.demoModeFlow
+            .onEach { enabled ->
+                _uiState.update { it.copy(isDemoMode = enabled) }
+            }
+            .launchIn(viewModelScope)
+
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -61,8 +77,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setMonthlyFee(value: String) {
-        val sanitized = value.replace(Regex("[^0-9.]"), "")
-        if (sanitized.count { it == '.' } > 1) return
+        val sanitized = value.replace(Regex("[^0-9]"), "")
         _uiState.update { it.copy(monthlyFee = sanitized) }
         val amount = sanitized.toDoubleOrNull() ?: 0.0
         viewModelScope.launch {
@@ -70,15 +85,14 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun exportData(onShareUri: (Uri) -> Unit) {
+    fun exportDataToUri(destinationUri: Uri) {
         viewModelScope.launch {
             _uiState.update { it.copy(isExporting = true, exportResult = null) }
             try {
                 val encryptedPin = preferencesManager.encryptedPinFlow.first()
                 val pin = PinEncryption.decrypt(encryptedPin)
-                val uri = exportDataUseCase(pin)
+                exportDataUseCase.exportZip(destinationUri, pin)
                 _uiState.update { it.copy(isExporting = false, exportResult = "Export successful") }
-                onShareUri(uri)
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(isExporting = false, exportResult = "Export failed: ${e.localizedMessage}")
@@ -87,8 +101,24 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun backupData(onShareUri: (Uri) -> Unit) {
-        exportData(onShareUri)
+    fun importData(uri: Uri) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(importResult = null) }
+            try {
+                val encryptedPin = preferencesManager.encryptedPinFlow.first()
+                val pin = PinEncryption.decrypt(encryptedPin)
+                importDataUseCase(uri, pin)
+                _uiState.update { it.copy(importResult = "Import successful") }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(importResult = "Import failed: ${e.localizedMessage}")
+                }
+            }
+        }
+    }
+
+    fun clearImportResult() {
+        _uiState.update { it.copy(importResult = null) }
     }
 
     fun requestDeleteAllData() {
@@ -118,4 +148,32 @@ class SettingsViewModel @Inject constructor(
             preferencesManager.setLockoutTimestamp(0)
         }
     }
+
+    fun toggleDemoMode() {
+        viewModelScope.launch {
+            val current = _uiState.value.isDemoMode
+            if (!current) {
+                // Entering demo mode — generate sample transactions
+                val now = LocalDateTime.now()
+                val demoTransactions = listOf(
+                    Transaction(note = "Initial deposit", amount = 50000.0, type = TransactionType.DEPOSIT, date = now.minusMonths(3)),
+                    Transaction(note = "Salary savings", amount = 25000.0, type = TransactionType.DEPOSIT, date = now.minusMonths(2).plusDays(5)),
+                    Transaction(note = "Freelance payment", amount = 15000.0, type = TransactionType.DEPOSIT, date = now.minusMonths(2).plusDays(15)),
+                    Transaction(note = "Emergency fund", amount = 10000.0, type = TransactionType.DEPOSIT, date = now.minusMonths(1).plusDays(1)),
+                    Transaction(note = "Phone bill", amount = 3500.0, type = TransactionType.WITHDRAWAL, date = now.minusMonths(1).plusDays(10)),
+                    Transaction(note = "Monthly bank fee", amount = 200.0, type = TransactionType.FEE, date = now.minusMonths(1)),
+                    Transaction(note = "Bonus savings", amount = 20000.0, type = TransactionType.DEPOSIT, date = now.minusWeeks(2)),
+                    Transaction(note = "Groceries", amount = 5500.0, type = TransactionType.WITHDRAWAL, date = now.minusWeeks(1)),
+                    Transaction(note = "Monthly bank fee", amount = 200.0, type = TransactionType.FEE, date = now.minusDays(3)),
+                    Transaction(note = "Side project income", amount = 8000.0, type = TransactionType.DEPOSIT, date = now.minusDays(1)),
+                )
+                repository.upsertTransactions(demoTransactions)
+            } else {
+                // Exiting demo mode — clear all transactions
+                repository.deleteAllTransactions()
+            }
+            preferencesManager.setDemoMode(!current)
+        }
+    }
+
 }

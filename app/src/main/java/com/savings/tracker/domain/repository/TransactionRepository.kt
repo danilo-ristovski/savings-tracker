@@ -14,4 +14,11 @@ interface TransactionRepository {
     suspend fun deleteTransaction(transaction: Transaction)
     suspend fun deleteAllTransactions()
     suspend fun getAllTransactionsList(): List<Transaction>
+    suspend fun softDeleteTransaction(id: Long)
+    suspend fun restoreTransaction(id: Long)
+    fun getDeletedTransactions(): Flow<List<Transaction>>
+    suspend fun permanentlyDeleteOlderThan(cutoff: LocalDateTime)
+    suspend fun permanentlyDeleteTransaction(transaction: Transaction)
+    suspend fun emptyTrash()
+    suspend fun upsertTransactions(transactions: List<Transaction>)
 }

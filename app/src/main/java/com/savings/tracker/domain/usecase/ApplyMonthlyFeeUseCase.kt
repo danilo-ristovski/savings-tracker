@@ -16,7 +16,10 @@ class ApplyMonthlyFeeUseCase @Inject constructor(
     private val monthFormatter = DateTimeFormatter.ofPattern("yyyy-MM")
 
     suspend operator fun invoke() {
-        val currentMonth = LocalDateTime.now().format(monthFormatter)
+        val now = LocalDateTime.now()
+        if (now.dayOfMonth != 1) return
+
+        val currentMonth = now.format(monthFormatter)
         val lastFeeAppliedMonth = preferencesManager.lastFeeAppliedMonthFlow.first()
         val monthlyFee = preferencesManager.monthlyFeeFlow.first()
 
@@ -24,7 +27,7 @@ class ApplyMonthlyFeeUseCase @Inject constructor(
             val feeTransaction = Transaction(
                 amount = monthlyFee,
                 type = TransactionType.FEE,
-                date = LocalDateTime.now(),
+                date = now,
                 note = "Monthly fee for $currentMonth"
             )
             repository.addTransaction(feeTransaction)

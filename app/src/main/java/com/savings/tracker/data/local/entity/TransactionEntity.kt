@@ -16,7 +16,8 @@ data class TransactionEntity(
     val type: String,
     val date: Long,
     val note: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val deletedAt: Long? = null
 )
 
 fun TransactionEntity.toTransaction(): Transaction {
@@ -26,7 +27,8 @@ fun TransactionEntity.toTransaction(): Transaction {
         type = TransactionType.valueOf(type),
         date = LocalDateTime.ofInstant(Instant.ofEpochMilli(date), ZoneId.systemDefault()),
         note = note,
-        createdAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(createdAt), ZoneId.systemDefault())
+        createdAt = LocalDateTime.ofInstant(Instant.ofEpochMilli(createdAt), ZoneId.systemDefault()),
+        deletedAt = deletedAt?.let { LocalDateTime.ofInstant(Instant.ofEpochMilli(it), ZoneId.systemDefault()) }
     )
 }
 
@@ -37,6 +39,7 @@ fun Transaction.toEntity(): TransactionEntity {
         type = type.name,
         date = date.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
         note = note,
-        createdAt = createdAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        createdAt = createdAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+        deletedAt = deletedAt?.atZone(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
     )
 }

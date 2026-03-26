@@ -15,17 +15,26 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.WeekFields
+import java.util.Locale
 import javax.inject.Inject
 
 enum class ChartType { LINE, BAR, PIE }
+enum class SortField { DATE, AMOUNT }
+enum class SortOrder { ASC, DESC }
 
 data class TrendsUiState(
     val transactions: List<Transaction> = emptyList(),
     val selectedTab: Int = 0,
     val selectedChartType: ChartType = ChartType.LINE,
     val isLoading: Boolean = true,
+    val searchQuery: String = "",
+    val filterType: TransactionType? = null,
+    val sortField: SortField = SortField.DATE,
+    val sortOrder: SortOrder = SortOrder.ASC,
 )
 
 @HiltViewModel
@@ -60,9 +69,33 @@ class TrendsViewModel @Inject constructor(
         _uiState.update { it.copy(selectedChartType = type) }
     }
 
+    fun setSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+    }
+
+    fun setFilterType(type: TransactionType?) {
+        _uiState.update { it.copy(filterType = type) }
+    }
+
+    fun setSortOrder(field: SortField, order: SortOrder) {
+        _uiState.update { it.copy(sortField = field, sortOrder = order) }
+    }
+
     fun updateTransaction(transaction: Transaction) {
         viewModelScope.launch {
             repository.updateTransaction(transaction)
+        }
+    }
+
+    fun deleteTransaction(transaction: Transaction) {
+        viewModelScope.launch {
+            repository.softDeleteTransaction(transaction.id)
+        }
+    }
+
+    fun restoreTransaction(id: Long) {
+        viewModelScope.launch {
+            repository.restoreTransaction(id)
         }
     }
 
@@ -90,6 +123,18 @@ class TrendsViewModel @Inject constructor(
             }
         }
 
+    val totalBalance: Double
+        get() {
+            var balance = 0.0
+            for (txn in _uiState.value.transactions.sortedBy { it.date }) {
+                balance += when (txn.type) {
+                    TransactionType.DEPOSIT -> txn.amount
+                    TransactionType.WITHDRAWAL, TransactionType.FEE -> -txn.amount
+                }
+            }
+            return balance
+        }
+
     val depositCount: Int
         get() = _uiState.value.transactions.count { it.type == TransactionType.DEPOSIT }
 
@@ -115,19 +160,73 @@ class TrendsViewModel @Inject constructor(
             .mapValues { it.value.size }
 
     fun tableRows(): List<TableRow> {
+        val state = _uiState.value
+        var filtered = state.transactions.toList()
+
+        // Apply filter
+        state.filterType?.let { type ->
+            filtered = filtered.filter { it.type == type }
+        }
+
+        // Apply search
+        if (state.searchQuery.isNotBlank()) {
+            val query = state.searchQuery.lowercase()
+            filtered = filtered.filter { txn ->
+                txn.note.lowercase().contains(query) ||
+                        txn.type.name.lowercase().contains(query) ||
+                        txn.amount.toString().contains(query)
+            }
+        }
+
+        // Apply sort
+        filtered = when (state.sortField) {
+            SortField.DATE -> when (state.sortOrder) {
+                SortOrder.ASC -> filtered.sortedBy { it.date }
+                SortOrder.DESC -> filtered.sortedByDescending { it.date }
+            }
+            SortField.AMOUNT -> when (state.sortOrder) {
+                SortOrder.ASC -> filtered.sortedBy { it.amount }
+                SortOrder.DESC -> filtered.sortedByDescending { it.amount }
+            }
+        }
+
         var balance = 0.0
-        return _uiState.value.transactions.map { txn ->
+        // Recalculate running balance based on all transactions in date order
+        val allSorted = state.transactions.sortedBy { it.date }
+        val balanceMap = mutableMapOf<Long, Double>()
+        for (txn in allSorted) {
             balance += when (txn.type) {
                 TransactionType.DEPOSIT -> txn.amount
                 TransactionType.WITHDRAWAL, TransactionType.FEE -> -txn.amount
             }
+            balanceMap[txn.id] = balance
+        }
+
+        return filtered.map { txn ->
             TableRow(
                 id = txn.id,
                 date = txn.date,
                 type = txn.type,
                 amount = txn.amount,
-                balanceAfter = balance,
+                balanceAfter = balanceMap[txn.id] ?: 0.0,
             )
+        }
+    }
+
+    fun groupedTableRows(): Map<String, List<TableRow>> {
+        val rows = tableRows()
+        val today = LocalDate.now()
+        val startOfWeek = today.with(WeekFields.of(Locale.getDefault()).dayOfWeek(), 1)
+        val startOfMonth = today.withDayOfMonth(1)
+
+        return rows.groupBy { row ->
+            val rowDate = row.date.toLocalDate()
+            when {
+                rowDate == today -> "Today"
+                rowDate >= startOfWeek -> "This Week"
+                rowDate >= startOfMonth -> "This Month"
+                else -> "Older"
+            }
         }
     }
 }

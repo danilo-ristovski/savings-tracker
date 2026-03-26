@@ -16,6 +16,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.savings.tracker.data.preferences.PreferencesManager
 import com.savings.tracker.domain.model.ThemeMode
+import com.savings.tracker.domain.usecase.ApplyMonthlyFeeUseCase
 import com.savings.tracker.navigation.NavGraph
 import com.savings.tracker.navigation.Routes
 import com.savings.tracker.presentation.theme.SavingsTrackingTheme
@@ -29,11 +30,13 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class MainActivityViewModel @Inject constructor(
-    preferencesManager: PreferencesManager
+    preferencesManager: PreferencesManager,
+    private val applyMonthlyFeeUseCase: ApplyMonthlyFeeUseCase,
 ) : ViewModel() {
 
     private val _isPinSet = MutableStateFlow<Boolean?>(null)
@@ -49,6 +52,10 @@ class MainActivityViewModel @Inject constructor(
         preferencesManager.isPinSetFlow
             .onEach { _isPinSet.value = it }
             .launchIn(viewModelScope)
+
+        viewModelScope.launch {
+            applyMonthlyFeeUseCase()
+        }
     }
 }
 
