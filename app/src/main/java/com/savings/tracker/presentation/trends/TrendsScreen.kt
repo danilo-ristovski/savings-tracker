@@ -171,6 +171,7 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
     val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
+    val categories by viewModel.categories.collectAsState()
 
     // Delete confirmation
     var deleteConfirmTransaction by remember { mutableStateOf<Transaction?>(null) }
@@ -368,7 +369,15 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
                                     onLongClick = {
                                         transaction?.let { txn ->
                                             val note = txn.note.ifEmpty { "(no note)" }
-                                            Toast.makeText(context, note, Toast.LENGTH_SHORT).show()
+                                            val categoryName = txn.categoryId?.let { catId ->
+                                                categories.find { it.id == catId }?.name
+                                            }
+                                            val toastText = if (categoryName != null) {
+                                                "$categoryName ($note)"
+                                            } else {
+                                                note
+                                            }
+                                            Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
                                         }
                                     },
                                 )
@@ -484,13 +493,15 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
 
     editingTransaction?.let { txn ->
         val currentBalance = viewModel.totalBalance
+        val categories by viewModel.categories.collectAsState()
         TransactionDialog(
             type = txn.type,
             currentBalance = currentBalance,
             editTransaction = txn,
-            onConfirm = { amount, date, note ->
+            categories = categories,
+            onConfirm = { amount, date, note, categoryId ->
                 viewModel.updateTransaction(
-                    txn.copy(amount = amount, date = date, note = note)
+                    txn.copy(amount = amount, date = date, note = note, categoryId = categoryId)
                 )
                 editingTransaction = null
             },

@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.savings.tracker.data.preferences.PreferencesManager
 import com.savings.tracker.data.security.PinEncryption
+import com.savings.tracker.domain.model.Category
 import com.savings.tracker.domain.model.ThemeMode
 import com.savings.tracker.domain.model.Transaction
 import com.savings.tracker.domain.model.TransactionType
+import com.savings.tracker.domain.repository.CategoryRepository
 import com.savings.tracker.domain.repository.TransactionRepository
 import com.savings.tracker.domain.usecase.DeleteAllDataUseCase
 import com.savings.tracker.domain.usecase.ExportDataUseCase
@@ -32,6 +34,9 @@ data class SettingsUiState(
     val importResult: String? = null,
     val isExporting: Boolean = false,
     val isDemoMode: Boolean = false,
+    val categories: List<Category> = emptyList(),
+    val isBiometricEnabled: Boolean = false,
+    val isShakeLogoutEnabled: Boolean = false,
 )
 
 @HiltViewModel
@@ -41,6 +46,7 @@ class SettingsViewModel @Inject constructor(
     private val deleteAllDataUseCase: DeleteAllDataUseCase,
     private val importDataUseCase: ImportDataUseCase,
     private val repository: TransactionRepository,
+    private val categoryRepository: CategoryRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -68,6 +74,23 @@ class SettingsViewModel @Inject constructor(
             }
             .launchIn(viewModelScope)
 
+        categoryRepository.getAllCategories()
+            .onEach { cats ->
+                _uiState.update { it.copy(categories = cats) }
+            }
+            .launchIn(viewModelScope)
+
+        preferencesManager.biometricEnabledFlow
+            .onEach { enabled ->
+                _uiState.update { it.copy(isBiometricEnabled = enabled) }
+            }
+            .launchIn(viewModelScope)
+
+        preferencesManager.shakeLogoutEnabledFlow
+            .onEach { enabled ->
+                _uiState.update { it.copy(isShakeLogoutEnabled = enabled) }
+            }
+            .launchIn(viewModelScope)
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -153,7 +176,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val current = _uiState.value.isDemoMode
             if (!current) {
-                // Entering demo mode — generate sample transactions
                 val now = LocalDateTime.now()
                 val demoTransactions = listOf(
                     Transaction(note = "Initial deposit", amount = 50000.0, type = TransactionType.DEPOSIT, date = now.minusMonths(3)),
@@ -169,11 +191,42 @@ class SettingsViewModel @Inject constructor(
                 )
                 repository.upsertTransactions(demoTransactions)
             } else {
-                // Exiting demo mode — clear all transactions
                 repository.deleteAllTransactions()
             }
             preferencesManager.setDemoMode(!current)
         }
     }
 
+    // Category CRUD
+    fun addCategory(name: String, notes: String) {
+        viewModelScope.launch {
+            categoryRepository.addCategory(Category(name = name, notes = notes))
+        }
+    }
+
+    fun updateCategory(category: Category) {
+        viewModelScope.launch {
+            categoryRepository.updateCategory(category)
+        }
+    }
+
+    fun deleteCategory(category: Category) {
+        viewModelScope.launch {
+            categoryRepository.deleteCategory(category)
+        }
+    }
+
+    // Biometric
+    fun setBiometricEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesManager.setBiometricEnabled(enabled)
+        }
+    }
+
+    // Shake logout
+    fun setShakeLogoutEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesManager.setShakeLogoutEnabled(enabled)
+        }
+    }
 }

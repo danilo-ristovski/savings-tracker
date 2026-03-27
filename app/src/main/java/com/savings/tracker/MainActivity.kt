@@ -1,7 +1,7 @@
 package com.savings.tracker
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
@@ -35,7 +35,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class MainActivityViewModel @Inject constructor(
-    preferencesManager: PreferencesManager,
+    val preferencesManager: PreferencesManager,
     private val applyMonthlyFeeUseCase: ApplyMonthlyFeeUseCase,
 ) : ViewModel() {
 
@@ -60,7 +60,7 @@ class MainActivityViewModel @Inject constructor(
 }
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
                         } else {
                             Routes.PIN_SETUP
                         }
-                        NavGraph(startDestination = startDestination)
+                        NavGraph(startDestination = startDestination, preferencesManager = viewModel.preferencesManager)
                     }
                 }
             }

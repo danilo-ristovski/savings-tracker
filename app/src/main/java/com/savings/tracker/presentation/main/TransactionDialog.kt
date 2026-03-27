@@ -38,8 +38,10 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import com.savings.tracker.domain.model.Category
 import com.savings.tracker.domain.model.Transaction
 import com.savings.tracker.domain.model.TransactionType
+import com.savings.tracker.presentation.components.CategoryPickerBottomSheet
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -83,9 +85,10 @@ fun formatAmountRsd(value: Double): String {
 fun TransactionDialog(
     type: TransactionType,
     currentBalance: Double,
-    onConfirm: (amount: Double, date: LocalDateTime, note: String) -> Unit,
+    onConfirm: (amount: Double, date: LocalDateTime, note: String, categoryId: Long?) -> Unit,
     onDismiss: () -> Unit,
-    editTransaction: Transaction? = null
+    editTransaction: Transaction? = null,
+    categories: List<Category> = emptyList(),
 ) {
     val initialRaw = editTransaction?.amount?.toLong()?.toString() ?: ""
 
@@ -97,6 +100,8 @@ fun TransactionDialog(
     var note by remember { mutableStateOf(editTransaction?.note ?: "") }
     var selectedDate by remember { mutableStateOf(editTransaction?.date?.toLocalDate() ?: LocalDate.now()) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var selectedCategoryId by remember { mutableStateOf(editTransaction?.categoryId) }
+    var showCategoryPicker by remember { mutableStateOf(false) }
 
     val dateFormatter = remember { DateTimeFormatter.ofPattern("dd.MM.yyyy.") }
 
@@ -205,6 +210,18 @@ fun TransactionDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                // Category picker
+                if (categories.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val categoryName = categories.find { it.id == selectedCategoryId }?.name
+                    FilledTonalButton(
+                        onClick = { showCategoryPicker = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(categoryName ?: "Select Category (optional)")
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 val balanceAfterColor = if (balanceAfter >= 0) {
@@ -241,7 +258,8 @@ fun TransactionDialog(
                         onConfirm(
                             amount,
                             LocalDateTime.of(selectedDate, editTransaction?.date?.toLocalTime() ?: LocalTime.now()),
-                            note
+                            note,
+                            selectedCategoryId
                         )
                     },
                     enabled = isValid
@@ -321,5 +339,17 @@ fun TransactionDialog(
                 DatePicker(state = datePickerState)
             }
         }
+    }
+
+    if (showCategoryPicker) {
+        CategoryPickerBottomSheet(
+            categories = categories,
+            selectedCategoryId = selectedCategoryId,
+            onCategorySelected = { category ->
+                selectedCategoryId = category?.id
+                showCategoryPicker = false
+            },
+            onDismiss = { showCategoryPicker = false },
+        )
     }
 }

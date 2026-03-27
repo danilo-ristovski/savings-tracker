@@ -206,7 +206,7 @@ fun LineChart(
                     Column {
                         Text(text = label, style = MaterialTheme.typography.labelMedium)
                         Text(
-                            text = formatAmountRsd(value),
+                            text = "${formatAmountRsd(value)} RSD",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -331,12 +331,12 @@ fun BarChart(
                     Column {
                         Text(text = label, style = MaterialTheme.typography.labelMedium)
                         Text(
-                            text = "Deposits: ${formatAmountRsd(deposits)}",
+                            text = "Deposits: ${formatAmountRsd(deposits)} RSD",
                             style = MaterialTheme.typography.bodySmall,
                             color = savingsGreen,
                         )
                         Text(
-                            text = "Withdrawals: ${formatAmountRsd(withdrawals)}",
+                            text = "Withdrawals: ${formatAmountRsd(withdrawals)} RSD",
                             style = MaterialTheme.typography.bodySmall,
                             color = withdrawalRed,
                         )
@@ -451,7 +451,7 @@ fun PieChart(
                         Column {
                             Text(text = label, style = MaterialTheme.typography.labelMedium)
                             Text(
-                                text = formatAmountRsd(value),
+                                text = "${formatAmountRsd(value)} RSD",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = pieColors[idx % pieColors.size],
                             )

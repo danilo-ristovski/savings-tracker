@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +18,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.SettingsBrightness
 import androidx.compose.material3.AlertDialog
@@ -36,6 +39,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
@@ -52,11 +56,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.savings.tracker.data.biometric.BiometricHelper
+import com.savings.tracker.domain.model.Category
 import com.savings.tracker.domain.model.ThemeMode
 import com.savings.tracker.presentation.pin.PinDots
 import com.savings.tracker.presentation.pin.PinKeypad
@@ -75,12 +82,20 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
     var showResetPinDialog by remember { mutableStateOf(false) }
     var newPin by remember { mutableStateOf("") }
     var confirmNewPin by remember { mutableStateOf("") }
     var isConfirmStep by remember { mutableStateOf(false) }
     var resetPinError by remember { mutableStateOf<String?>(null) }
     var showDemoModeDialog by remember { mutableStateOf(false) }
+
+    // Category state
+    var showAddCategoryDialog by remember { mutableStateOf(false) }
+    var editingCategory by remember { mutableStateOf<Category?>(null) }
+    var deletingCategory by remember { mutableStateOf<Category?>(null) }
+
+    val biometricAvailable = remember { BiometricHelper.isBiometricAvailable(context) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
@@ -201,6 +216,68 @@ fun SettingsScreen(
                 }
             }
 
+            // Categories Section
+            SectionHeader("Transaction Categories")
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    uiState.categories.forEach { category ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = category.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                if (category.notes.isNotEmpty()) {
+                                    Text(
+                                        text = category.notes,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (category.isPredefined) {
+                                    Text(
+                                        text = "Predefined",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { editingCategory = category }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp))
+                            }
+                            if (!category.isPredefined) {
+                                IconButton(onClick = { deletingCategory = category }) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Delete",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ElevatedButton(
+                        onClick = { showAddCategoryDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Add Category")
+                    }
+                }
+            }
+
             // Security Section
             SectionHeader("Security")
             Card(
@@ -227,6 +304,55 @@ fun SettingsScreen(
                         ) {
                             Text("Reset PIN")
                         }
+                    }
+
+                    // Biometric toggle
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Biometric Login",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = if (biometricAvailable) "Use fingerprint or face to unlock" else "Not available on this device",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = uiState.isBiometricEnabled,
+                            onCheckedChange = { viewModel.setBiometricEnabled(it) },
+                            enabled = biometricAvailable,
+                        )
+                    }
+
+                    // Shake to logout toggle
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Shake to Logout",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = "Shake your phone to lock the app",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = uiState.isShakeLogoutEnabled,
+                            onCheckedChange = { viewModel.setShakeLogoutEnabled(it) },
+                        )
                     }
                 }
             }
@@ -471,6 +597,122 @@ fun SettingsScreen(
             },
         )
     }
+
+    // Add category dialog
+    if (showAddCategoryDialog) {
+        CategoryDialog(
+            title = "Add Category",
+            onDismiss = { showAddCategoryDialog = false },
+            onConfirm = { name, notes ->
+                viewModel.addCategory(name, notes)
+                showAddCategoryDialog = false
+            },
+        )
+    }
+
+    // Edit category dialog
+    editingCategory?.let { category ->
+        CategoryDialog(
+            title = "Edit Category",
+            initialName = category.name,
+            initialNotes = category.notes,
+            onDismiss = { editingCategory = null },
+            onConfirm = { name, notes ->
+                viewModel.updateCategory(category.copy(name = name, notes = notes))
+                editingCategory = null
+            },
+        )
+    }
+
+    // Delete category confirmation
+    deletingCategory?.let { category ->
+        AlertDialog(
+            onDismissRequest = { deletingCategory = null },
+            title = { Text("Delete Category?") },
+            text = { Text("Are you sure you want to delete \"${category.name}\"?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteCategory(category)
+                        deletingCategory = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingCategory = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun CategoryDialog(
+    title: String,
+    initialName: String = "",
+    initialNotes: String = "",
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, notes: String) -> Unit,
+) {
+    var name by remember { mutableStateOf(initialName) }
+    var notes by remember { mutableStateOf(initialNotes) }
+    var nameError by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { input ->
+                        // Auto-format: lowercase, replace spaces with underscores
+                        name = input.lowercase().replace(" ", "_").replace(Regex("[^a-z0-9_]"), "")
+                        nameError = null
+                    },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    isError = nameError != null,
+                    supportingText = nameError?.let { { Text(it) } },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Notes (optional)") },
+                    singleLine = false,
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (name.isBlank()) {
+                        nameError = "Name is required"
+                    } else {
+                        onConfirm(name, notes)
+                    }
+                },
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 @Composable

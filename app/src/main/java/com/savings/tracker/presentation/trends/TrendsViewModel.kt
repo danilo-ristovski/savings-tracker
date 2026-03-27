@@ -2,8 +2,10 @@ package com.savings.tracker.presentation.trends
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.savings.tracker.domain.model.Category
 import com.savings.tracker.domain.model.Transaction
 import com.savings.tracker.domain.model.TransactionType
+import com.savings.tracker.domain.repository.CategoryRepository
 import com.savings.tracker.domain.repository.TransactionRepository
 import com.savings.tracker.domain.usecase.GetTransactionsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -41,14 +43,22 @@ data class TrendsUiState(
 class TrendsViewModel @Inject constructor(
     getTransactionsUseCase: GetTransactionsUseCase,
     private val repository: TransactionRepository,
+    categoryRepository: CategoryRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TrendsUiState())
     val uiState: StateFlow<TrendsUiState> = _uiState.asStateFlow()
 
+    private val _categories = MutableStateFlow<List<Category>>(emptyList())
+    val categories: StateFlow<List<Category>> = _categories.asStateFlow()
+
     private val monthFormatter = DateTimeFormatter.ofPattern("MMM yyyy")
 
     init {
+        categoryRepository.getAllCategories()
+            .onEach { _categories.value = it }
+            .launchIn(viewModelScope)
+
         getTransactionsUseCase()
             .onEach { txns ->
                 _uiState.update {

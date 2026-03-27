@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -106,6 +107,21 @@ class PinViewModel @Inject constructor(
 
     fun initForLogin() {
         _state.update { it.copy(isPinSet = true) }
+    }
+
+    suspend fun isBiometricEnabled(): Boolean {
+        return preferencesManager.biometricEnabledFlow.first()
+    }
+
+    fun onBiometricSuccess() {
+        viewModelScope.launch {
+            preferencesManager.setFailedAttempts(0)
+            preferencesManager.setLockoutTimestamp(0)
+            _state.update {
+                it.copy(failedAttempts = 0, isPostLockout = false, error = null)
+            }
+            _events.emit(PinEvent.LoginSuccess)
+        }
     }
 
     private fun setupPin() {

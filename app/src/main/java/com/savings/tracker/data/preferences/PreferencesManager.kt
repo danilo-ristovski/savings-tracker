@@ -34,6 +34,8 @@ class PreferencesManager @Inject constructor(
         val IS_LOCKED_PERMANENTLY = booleanPreferencesKey("is_locked_permanently")
         val TRASH_RETENTION_DAYS = intPreferencesKey("trash_retention_days")
         val DEMO_MODE = booleanPreferencesKey("demo_mode")
+        val BIOMETRIC_ENABLED = booleanPreferencesKey("biometric_enabled")
+        val SHAKE_LOGOUT_ENABLED = booleanPreferencesKey("shake_logout_enabled")
     }
 
     // Encrypted PIN
@@ -124,6 +126,24 @@ class PreferencesManager @Inject constructor(
 
     suspend fun setDemoMode(value: Boolean) {
         context.dataStore.edit { prefs -> prefs[Keys.DEMO_MODE] = value }
+    }
+
+    // Biometric Enabled
+    val biometricEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.BIOMETRIC_ENABLED] ?: false
+    }
+
+    suspend fun setBiometricEnabled(value: Boolean) {
+        context.dataStore.edit { prefs -> prefs[Keys.BIOMETRIC_ENABLED] = value }
+    }
+
+    // Shake Logout
+    val shakeLogoutEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.SHAKE_LOGOUT_ENABLED] ?: false
+    }
+
+    suspend fun setShakeLogoutEnabled(value: Boolean) {
+        context.dataStore.edit { prefs -> prefs[Keys.SHAKE_LOGOUT_ENABLED] = value }
     }
 
     // Clear All

@@ -55,5 +55,6 @@ data class Transaction(
     @Serializable(with = LocalDateTimeSerializer::class)
     val createdAt: LocalDateTime = LocalDateTime.now(),
     @Serializable(with = NullableLocalDateTimeSerializer::class)
-    val deletedAt: LocalDateTime? = null
+    val deletedAt: LocalDateTime? = null,
+    val categoryId: Long? = null
 )

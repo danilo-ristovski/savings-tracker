@@ -94,6 +94,9 @@ dependencies {
     // Zip4j
     implementation("net.lingala.zip4j:zip4j:2.11.5")
 
+    // Biometric
+    implementation("androidx.biometric:biometric:1.1.0")
+
     // Core KTX
     implementation("androidx.core:core-ktx:1.15.0")
 

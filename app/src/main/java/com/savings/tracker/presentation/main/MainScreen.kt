@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -29,6 +32,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
@@ -75,7 +79,6 @@ fun MainScreen(
         savedStateHandle?.getLiveData<String>("snackbar_message")?.observeForever { message ->
             if (!message.isNullOrEmpty()) {
                 savedStateHandle.remove<String>("snackbar_message")
-                // launch snackbar in a coroutine
             }
         }
     }
@@ -136,7 +139,7 @@ fun MainScreen(
                     .padding(paddingValues)
                     .padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically)
+                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
             ) {
                 Card(
                     modifier = Modifier
@@ -252,6 +255,42 @@ fun MainScreen(
                     }
                 }
 
+                // Monthly overview button
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { navController.navigate(Routes.MONTHLY_BALANCE) },
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Column {
+                            Text(
+                                text = "Monthly Overview",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = "See how each month went",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -305,6 +344,20 @@ fun MainScreen(
                         }
                     }
                 }
+
+                // Tip of the day button
+                OutlinedButton(
+                    onClick = { viewModel.showNextTip() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(
+                        Icons.Default.Lightbulb,
+                        contentDescription = null,
+                        modifier = Modifier.padding(end = 8.dp),
+                        tint = MaterialTheme.colorScheme.tertiary,
+                    )
+                    Text("Tip of the Day")
+                }
             }
         }
     }
@@ -313,16 +366,47 @@ fun MainScreen(
         TransactionDialog(
             type = transactionType,
             currentBalance = state.balance,
-            onConfirm = { amount, date, note ->
+            categories = state.categories,
+            onConfirm = { amount, date, note, categoryId ->
                 viewModel.addTransaction(
                     amount = amount,
                     date = date,
                     type = transactionType,
-                    note = note
+                    note = note,
+                    categoryId = categoryId,
                 )
                 showTransactionDialog = false
             },
             onDismiss = { showTransactionDialog = false }
+        )
+    }
+
+    // Tip dialog
+    state.currentTip?.let { tip ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissTip() },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Lightbulb,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    Text("Savings Tip", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = { Text(tip) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.showNextTip() }) {
+                    Text("Next Tip")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissTip() }) {
+                    Text("Close")
+                }
+            },
         )
     }
 }

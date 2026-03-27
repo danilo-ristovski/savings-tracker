@@ -3,8 +3,11 @@ package com.savings.tracker.di
 import android.content.Context
 import androidx.room.Room
 import com.savings.tracker.data.local.SavingsDatabase
+import com.savings.tracker.data.local.dao.CategoryDao
 import com.savings.tracker.data.local.dao.TransactionDao
+import com.savings.tracker.data.repository.CategoryRepositoryImpl
 import com.savings.tracker.data.repository.TransactionRepositoryImpl
+import com.savings.tracker.domain.repository.CategoryRepository
 import com.savings.tracker.domain.repository.TransactionRepository
 import dagger.Binds
 import dagger.Module
@@ -24,6 +27,12 @@ abstract class AppModule {
         impl: TransactionRepositoryImpl
     ): TransactionRepository
 
+    @Binds
+    @Singleton
+    abstract fun bindCategoryRepository(
+        impl: CategoryRepositoryImpl
+    ): CategoryRepository
+
     companion object {
 
         @Provides
@@ -35,13 +44,22 @@ abstract class AppModule {
                 context,
                 SavingsDatabase::class.java,
                 "savings_database"
-            ).addMigrations(SavingsDatabase.MIGRATION_1_2).build()
+            ).addMigrations(
+                SavingsDatabase.MIGRATION_1_2,
+                SavingsDatabase.MIGRATION_2_3,
+            ).build()
         }
 
         @Provides
         @Singleton
         fun provideTransactionDao(database: SavingsDatabase): TransactionDao {
             return database.transactionDao()
+        }
+
+        @Provides
+        @Singleton
+        fun provideCategoryDao(database: SavingsDatabase): CategoryDao {
+            return database.categoryDao()
         }
     }
 }
