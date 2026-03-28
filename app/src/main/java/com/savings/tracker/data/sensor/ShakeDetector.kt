@@ -39,7 +39,7 @@ class ShakeDetector(
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     companion object {
-        private const val SHAKE_THRESHOLD = 6f
+        private const val SHAKE_THRESHOLD = 10f
         private const val SHAKE_COOLDOWN_MS = 2000L
     }
 }

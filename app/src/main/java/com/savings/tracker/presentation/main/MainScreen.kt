@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -23,9 +24,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
@@ -92,6 +95,8 @@ fun MainScreen(
         }
     }
 
+    var showLogoutConfirm by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -105,21 +110,49 @@ fun MainScreen(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.onSurface
                 ),
-                actions = {
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                        tooltip = { PlainTooltip { Text("Settings") } },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(onClick = { navController.navigate(Routes.SETTINGS) }) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings"
-                            )
-                        }
-                    }
-                }
             )
+        },
+        bottomBar = {
+            Column {
+                HorizontalDivider()
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp,
+                ) {
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { viewModel.showNextTip() },
+                        icon = {
+                            Icon(
+                                Icons.Default.Lightbulb,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                            )
+                        },
+                        label = { Text("Tip") },
+                    )
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { navController.navigate(Routes.SETTINGS) },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                        label = { Text("Settings") },
+                    )
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = { showLogoutConfirm = true },
+                        icon = {
+                            Icon(
+                                Icons.Default.Logout,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        label = {
+                            Text("Logout", color = MaterialTheme.colorScheme.error)
+                        },
+                    )
+                }
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
@@ -345,19 +378,6 @@ fun MainScreen(
                     }
                 }
 
-                // Tip of the day button
-                OutlinedButton(
-                    onClick = { viewModel.showNextTip() },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(
-                        Icons.Default.Lightbulb,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 8.dp),
-                        tint = MaterialTheme.colorScheme.tertiary,
-                    )
-                    Text("Tip of the Day")
-                }
             }
         }
     }
@@ -378,6 +398,35 @@ fun MainScreen(
                 showTransactionDialog = false
             },
             onDismiss = { showTransactionDialog = false }
+        )
+    }
+
+    // Logout confirmation dialog
+    if (showLogoutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirm = false },
+            title = { Text("Log Out") },
+            text = { Text("Confirm you want to log out from the application.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLogoutConfirm = false
+                        navController.navigate(Routes.PIN_LOGIN) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                ) {
+                    Text("Confirm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutConfirm = false }) {
+                    Text("Cancel")
+                }
+            },
         )
     }
 
