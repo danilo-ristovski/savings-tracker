@@ -4,10 +4,13 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,17 +20,33 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,11 +57,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
@@ -52,8 +70,8 @@ import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -63,21 +81,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.savings.tracker.domain.model.AnalysisSection
+import com.savings.tracker.domain.model.CategoryType
 import com.savings.tracker.domain.model.Transaction
 import com.savings.tracker.domain.model.TransactionType
 import com.savings.tracker.presentation.components.BarChart
 import com.savings.tracker.presentation.components.HorizontalComparisonBar
 import com.savings.tracker.presentation.components.LineChart
 import com.savings.tracker.presentation.components.PieChart
+import com.savings.tracker.presentation.components.StackedAreaChart
+import com.savings.tracker.presentation.components.BarChart
 import com.savings.tracker.presentation.main.TransactionDialog
 import com.savings.tracker.presentation.main.formatAmountRsd
-import android.widget.Toast
 import com.savings.tracker.presentation.theme.feeOrange
 import com.savings.tracker.presentation.theme.savingsGreen
 import com.savings.tracker.presentation.theme.withdrawalRed
@@ -107,6 +129,8 @@ fun TrendsScreen(
         viewModel.selectTab(pagerState.currentPage)
     }
 
+    val tabIcons = listOf(Icons.Default.List, Icons.Default.BarChart, Icons.Default.PieChart)
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -124,35 +148,33 @@ fun TrendsScreen(
                 },
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-    ) { padding ->
-        Column(modifier = Modifier.padding(padding)) {
-            TabRow(selectedTabIndex = pagerState.currentPage) {
+        bottomBar = {
+            NavigationBar {
                 tabs.forEachIndexed { index, title ->
-                    Tab(
+                    NavigationBarItem(
                         selected = pagerState.currentPage == index,
-                        onClick = {
-                            coroutineScope.launch { pagerState.animateScrollToPage(index) }
-                        },
-                        text = { Text(title) },
+                        onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } },
+                        icon = { Icon(tabIcons[index], contentDescription = title) },
+                        label = { Text(title) },
                     )
                 }
             }
-
-            if (uiState.isLoading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else {
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                ) { page ->
-                    when (page) {
-                        0 -> TableTab(viewModel, snackbarHostState)
-                        1 -> ChartsTab(viewModel, uiState)
-                        2 -> AnalysisTab(viewModel)
-                    }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
+        if (uiState.isLoading) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize().padding(padding),
+            ) { page ->
+                when (page) {
+                    0 -> TableTab(viewModel, snackbarHostState)
+                    1 -> ChartsTab(viewModel, uiState)
+                    2 -> AnalysisTab(viewModel)
                 }
             }
         }
@@ -167,8 +189,6 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
     var showFeeWarning by remember { mutableStateOf(false) }
     var pendingFeeTransaction by remember { mutableStateOf<Transaction?>(null) }
     val coroutineScope = rememberCoroutineScope()
-    val groupedRows = viewModel.groupedTableRows()
-    val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val categories by viewModel.categories.collectAsState()
@@ -176,14 +196,18 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
     // Delete confirmation
     var deleteConfirmTransaction by remember { mutableStateOf<Transaction?>(null) }
 
-    // Initialize all groups as expanded
-    LaunchedEffect(groupedRows.keys.toSet()) {
-        groupedRows.keys.forEach { key ->
-            if (key !in expandedGroups) {
-                expandedGroups[key] = true
-            }
+    val rows = viewModel.tableRows()
+    val hasFeeTransactions = uiState.transactions.any { it.type == TransactionType.FEE }
+    val availableYears = viewModel.availableYears
+    val visibleCategories = categories.filter { cat ->
+        when (uiState.filterType) {
+            TransactionType.DEPOSIT -> cat.type == CategoryType.DEPOSIT || cat.type == CategoryType.ANY
+            TransactionType.WITHDRAWAL, TransactionType.FEE -> cat.type == CategoryType.WITHDRAWAL || cat.type == CategoryType.ANY
+            null -> true
         }
     }
+    val isFilterActive = uiState.filterType != null || uiState.filterCategoryIds.isNotEmpty() || uiState.filterNoCategory || uiState.filterYear != null
+    var showFilterSheet by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -194,238 +218,207 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
                 }
             }
     ) {
-        // Search with clear button
-        OutlinedTextField(
-            value = uiState.searchQuery,
-            onValueChange = { viewModel.setSearchQuery(it) },
-            label = { Text("Search transactions") },
-            singleLine = true,
-            trailingIcon = {
-                if (uiState.searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear search")
-                    }
-                }
-            },
+        // Search row with filter button
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = uiState.searchQuery,
+                onValueChange = { viewModel.setSearchQuery(it) },
+                label = { Text("Search transactions") },
+                singleLine = true,
+                trailingIcon = {
+                    if (uiState.searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { showFilterSheet = true }) {
+                BadgedBox(
+                    badge = { if (isFilterActive) Badge() }
+                ) {
+                    Icon(
+                        Icons.Default.FilterList,
+                        contentDescription = "Filters",
+                        tint = if (isFilterActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        Text(
+            text = if (rows.isEmpty()) "No transactions" else "${rows.size} transaction${if (rows.size == 1) "" else "s"}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
         )
 
-        // Filter chips
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(
-                selected = uiState.filterType == null,
-                onClick = { viewModel.setFilterType(null) },
-                label = { Text("All") },
-            )
-            FilterChip(
-                selected = uiState.filterType == TransactionType.DEPOSIT,
-                onClick = { viewModel.setFilterType(TransactionType.DEPOSIT) },
-                label = { Text("Deposit") },
-            )
-            FilterChip(
-                selected = uiState.filterType == TransactionType.WITHDRAWAL,
-                onClick = { viewModel.setFilterType(TransactionType.WITHDRAWAL) },
-                label = { Text("Withdrawal") },
-            )
-            FilterChip(
-                selected = uiState.filterType == TransactionType.FEE,
-                onClick = { viewModel.setFilterType(TransactionType.FEE) },
-                label = { Text("Fee") },
-            )
-        }
-
-        // Sort chips — toggle between ASC/DESC on click
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            val dateSelected = uiState.sortField == SortField.DATE
-            val dateArrow = if (dateSelected && uiState.sortOrder == SortOrder.ASC) "\u2191" else "\u2193"
-            FilterChip(
-                selected = dateSelected,
-                onClick = {
-                    if (dateSelected) {
-                        val newOrder = if (uiState.sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
-                        viewModel.setSortOrder(SortField.DATE, newOrder)
-                    } else {
-                        viewModel.setSortOrder(SortField.DATE, SortOrder.DESC)
-                    }
-                },
-                label = { Text("Date $dateArrow") },
-            )
-
-            val amountSelected = uiState.sortField == SortField.AMOUNT
-            val amountArrow = if (amountSelected && uiState.sortOrder == SortOrder.ASC) "\u2191" else "\u2193"
-            FilterChip(
-                selected = amountSelected,
-                onClick = {
-                    if (amountSelected) {
-                        val newOrder = if (uiState.sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
-                        viewModel.setSortOrder(SortField.AMOUNT, newOrder)
-                    } else {
-                        viewModel.setSortOrder(SortField.AMOUNT, SortOrder.DESC)
-                    }
-                },
-                label = { Text("Amount $amountArrow") },
-            )
-        }
-
-        if (groupedRows.isEmpty()) {
+        if (rows.isEmpty()) {
             EmptyMessage("No transactions to display")
-            return
+        } else {
+
+        val listState = rememberLazyListState()
+        val showScrollToTop by remember { derivedStateOf { listState.firstVisibleItemIndex >= 10 } }
+        val showScrollToBottom by remember {
+            derivedStateOf {
+                val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                val total = listState.layoutInfo.totalItemsCount
+                listState.firstVisibleItemIndex >= 10 && total > 0 && lastVisible < total - 4
+            }
         }
 
-        val groupOrder = listOf("Today", "This Week", "This Month", "Older")
-
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            // Header
-            item {
+        Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 72.dp),
+        ) {
+            // Sticky sortable header
+            stickyHeader {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.primaryContainer)
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    HeaderCell("Date", Modifier.weight(1.1f), TextAlign.Start)
-                    HeaderCell("Type", Modifier.weight(1.1f), TextAlign.Start)
-                    HeaderCell("Amount", Modifier.weight(1f), TextAlign.End)
-                    HeaderCell("Balance", Modifier.weight(1f), TextAlign.End)
-                    // Space for delete button
-                    Spacer(modifier = Modifier.width(40.dp))
+                    SortableHeaderCell("Date", SortField.DATE, uiState, Modifier.weight(1.3f), TextAlign.Start) {
+                        val newOrder = if (uiState.sortField == SortField.DATE && uiState.sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+                        viewModel.setSortOrder(SortField.DATE, newOrder)
+                    }
+                    SortableHeaderCell("Amount", SortField.AMOUNT, uiState, Modifier.weight(1.1f), TextAlign.End) {
+                        val newOrder = if (uiState.sortField == SortField.AMOUNT && uiState.sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+                        viewModel.setSortOrder(SortField.AMOUNT, newOrder)
+                    }
+                    SortableHeaderCell("Balance", SortField.BALANCE, uiState, Modifier.weight(1.1f), TextAlign.End) {
+                        val newOrder = if (uiState.sortField == SortField.BALANCE && uiState.sortOrder == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+                        viewModel.setSortOrder(SortField.BALANCE, newOrder)
+                    }
+                    Spacer(modifier = Modifier.width(64.dp))
                 }
             }
 
-            groupOrder.forEach { groupName ->
-                val rows = groupedRows[groupName] ?: return@forEach
-                val isExpanded = expandedGroups[groupName] ?: true
-
-                // Sticky header
-                stickyHeader {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.secondaryContainer)
-                            .clickable {
-                                expandedGroups[groupName] = !isExpanded
-                            }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = "$groupName (${rows.size})",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                        Icon(
-                            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (isExpanded) "Collapse" else "Expand",
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
+            itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
+                val bgColor = if (index % 2 == 0) {
+                    MaterialTheme.colorScheme.surface
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 }
+                val textColor = when (row.type) {
+                    TransactionType.DEPOSIT -> savingsGreen
+                    TransactionType.WITHDRAWAL -> withdrawalRed
+                    TransactionType.FEE -> feeOrange
+                }
+                val transaction = uiState.transactions.find { it.id == row.id }
 
-                if (isExpanded) {
-                    itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
-                        val bgColor = if (index % 2 == 0) {
-                            MaterialTheme.colorScheme.surface
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        }
-                        val textColor = when (row.type) {
-                            TransactionType.DEPOSIT -> savingsGreen
-                            TransactionType.WITHDRAWAL -> withdrawalRed
-                            TransactionType.FEE -> feeOrange
-                        }
-                        val transaction = uiState.transactions.find { it.id == row.id }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(bgColor)
-                                .combinedClickable(
-                                    onClick = {
-                                        focusManager.clearFocus()
-                                        transaction?.let { txn ->
-                                            if (txn.type == TransactionType.FEE) {
-                                                pendingFeeTransaction = txn
-                                                showFeeWarning = true
-                                            } else {
-                                                editingTransaction = txn
-                                            }
-                                        }
-                                    },
-                                    onLongClick = {
-                                        transaction?.let { txn ->
-                                            val note = txn.note.ifEmpty { "(no note)" }
-                                            val categoryName = txn.categoryId?.let { catId ->
-                                                categories.find { it.id == catId }?.name
-                                            }
-                                            val toastText = if (categoryName != null) {
-                                                "$categoryName ($note)"
-                                            } else {
-                                                note
-                                            }
-                                            Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                )
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = row.date.format(dateFormatter),
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.weight(1.1f),
-                            )
-                            Text(
-                                text = row.type.name,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = textColor,
-                                modifier = Modifier.weight(1.1f),
-                            )
-                            Text(
-                                text = "${fmtAmt(row.amount)} RSD",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = textColor,
-                                modifier = Modifier.weight(1f),
-                                textAlign = TextAlign.End,
-                            )
-                            Text(
-                                text = "${fmtAmt(row.balanceAfter)} RSD",
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.weight(1f),
-                                textAlign = TextAlign.End,
-                            )
-                            IconButton(
-                                onClick = {
-                                    transaction?.let { deleteConfirmTransaction = it }
-                                },
-                                modifier = Modifier.size(36.dp),
-                            ) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Delete",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(bgColor)
+                        .combinedClickable(
+                            onClick = {
+                                focusManager.clearFocus()
+                                transaction?.let { txn ->
+                                    if (txn.type == TransactionType.FEE) {
+                                        pendingFeeTransaction = txn
+                                        showFeeWarning = true
+                                    } else {
+                                        editingTransaction = txn
+                                    }
+                                }
+                            },
+                            onLongClick = {
+                                transaction?.let { txn ->
+                                    if (txn.note.isBlank()) return@let
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar(txn.note)
+                                    }
+                                }
+                            },
+                        )
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = row.date.format(dateFormatter),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1.3f),
+                    )
+                    Text(
+                        text = "${fmtAmt(row.amount)} RSD",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textColor,
+                        modifier = Modifier.weight(1.1f),
+                        textAlign = TextAlign.End,
+                    )
+                    Text(
+                        text = "${fmtAmt(row.balanceAfter)} RSD",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1.1f),
+                        textAlign = TextAlign.End,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    if (row.hasNote) {
+                        Icon(
+                            Icons.Default.Notes,
+                            contentDescription = "Has note",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.width(16.dp))
+                    }
+                    IconButton(
+                        onClick = {
+                            transaction?.let { deleteConfirmTransaction = it }
+                        },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                 }
             }
         }
+
+        // FAB scroll buttons
+        if (showScrollToBottom) {
+            SmallFloatingActionButton(
+                onClick = { coroutineScope.launch { listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1) } },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 12.dp, bottom = 12.dp),
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom")
+            }
+        }
+        if (showScrollToTop) {
+            SmallFloatingActionButton(
+                onClick = { coroutineScope.launch { listState.scrollToItem(0) } },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = 12.dp,
+                        bottom = if (showScrollToBottom) 60.dp else 12.dp,
+                    ),
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
+            }
+        }
+        } // end Box
+        } // end else (rows not empty)
     }
 
     // Delete confirmation dialog
@@ -458,6 +451,127 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
                 }
             },
         )
+    }
+
+    // Filter bottom sheet
+    if (showFilterSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val monthNames = listOf("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+        ModalBottomSheet(
+            onDismissRequest = { showFilterSheet = false },
+            sheetState = sheetState,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Filters", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    TextButton(onClick = {
+                        viewModel.setFilterType(null)
+                        viewModel.clearCategoryFilter()
+                        viewModel.setFilterYear(null)
+                        viewModel.setFilterMonth(null)
+                    }) { Text("Reset") }
+                }
+                HorizontalDivider()
+                Spacer(Modifier.height(4.dp))
+
+                Text("Transaction type", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(selected = uiState.filterType == null, onClick = { viewModel.setFilterType(null) }, label = { Text("All") })
+                    FilterChip(selected = uiState.filterType == TransactionType.DEPOSIT, onClick = { viewModel.setFilterType(TransactionType.DEPOSIT) }, label = { Text("Deposit") })
+                    FilterChip(selected = uiState.filterType == TransactionType.WITHDRAWAL, onClick = { viewModel.setFilterType(TransactionType.WITHDRAWAL) }, label = { Text("Withdrawal") })
+                    if (hasFeeTransactions) {
+                        FilterChip(selected = uiState.filterType == TransactionType.FEE, onClick = { viewModel.setFilterType(TransactionType.FEE) }, label = { Text("Fee") })
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
+                Text("Category (multi-select)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = uiState.filterNoCategory,
+                        onClick = { viewModel.toggleNoCategoryFilter() },
+                        label = {
+                            Text(
+                                "No category",
+                                fontStyle = FontStyle.Italic,
+                                color = if (uiState.filterNoCategory) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                    )
+                    visibleCategories.forEach { category ->
+                        FilterChip(
+                            selected = category.id in uiState.filterCategoryIds,
+                            onClick = { viewModel.setFilterCategory(category.id) },
+                            label = { Text(category.name) },
+                        )
+                    }
+                }
+
+                if (availableYears.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Year", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val yearListState = rememberLazyListState()
+                    LazyRow(
+                        state = yearListState,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(availableYears.size) { i ->
+                            val year = availableYears[i]
+                            FilterChip(
+                                selected = uiState.filterYear == year,
+                                onClick = {
+                                    viewModel.setFilterYear(if (uiState.filterYear == year) null else year)
+                                    coroutineScope.launch { yearListState.revealItem(i) }
+                                },
+                                label = { Text(year.toString()) },
+                            )
+                        }
+                    }
+                }
+
+                if (uiState.filterYear != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Month", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val monthListState = rememberLazyListState()
+                    LazyRow(
+                        state = monthListState,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(monthNames.size) { idx ->
+                            val monthNum = idx + 1
+                            FilterChip(
+                                selected = uiState.filterMonth == monthNum,
+                                onClick = {
+                                    viewModel.setFilterMonth(if (uiState.filterMonth == monthNum) null else monthNum)
+                                    coroutineScope.launch { monthListState.revealItem(idx) }
+                                },
+                                label = { Text(monthNames[idx]) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Fee warning dialog
@@ -512,78 +626,194 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
 
 @Composable
 private fun ChartsTab(viewModel: TrendsViewModel, uiState: TrendsUiState) {
+    val availableYears = viewModel.availableYears
+    val monthNames = listOf("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+    val coroutineScope = rememberCoroutineScope()
+
+    var showChartInfoDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ChartType.entries.forEach { type ->
-                FilterChip(
-                    selected = uiState.selectedChartType == type,
-                    onClick = { viewModel.selectChartType(type) },
-                    label = { Text(type.name) },
-                )
+        // Chart type selector — only show visible types
+        val visibleChartTypes = ChartType.entries.filter { it.name !in uiState.hiddenChartTypes }
+        // If the selected type got hidden, auto-select first visible
+        if (uiState.selectedChartType.name in uiState.hiddenChartTypes && visibleChartTypes.isNotEmpty()) {
+            viewModel.selectChartType(visibleChartTypes.first())
+        }
+
+        if (visibleChartTypes.isEmpty()) {
+            EmptyMessage("All chart types are hidden.\nEnable them in Settings → Chart Types.", Icons.Default.BarChart)
+            return@Column
+        }
+
+        // Chart type chips as LazyRow with auto-scroll to selected chip
+        val chipListState = rememberLazyListState()
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LazyRow(
+                state = chipListState,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                items(visibleChartTypes.size) { i ->
+                    val type = visibleChartTypes[i]
+                    FilterChip(
+                        selected = uiState.selectedChartType == type,
+                        onClick = {
+                            viewModel.selectChartType(type)
+                            coroutineScope.launch { chipListState.revealItem(i) }
+                        },
+                        label = { Text(type.displayName) },
+                    )
+                }
+            }
+            IconButton(onClick = { showChartInfoDialog = true }) {
+                Icon(Icons.Default.Info, contentDescription = "Chart info", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Spacer(modifier = Modifier.height(16.dp))
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Year filter chips
+        if (availableYears.isNotEmpty()) {
+            val chartYearListState = rememberLazyListState()
+            LazyRow(
+                state = chartYearListState,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(availableYears.size) { i ->
+                    val year = availableYears[i]
+                    FilterChip(
+                        selected = uiState.chartFilterYear == year,
+                        onClick = {
+                            viewModel.setChartFilterYear(if (uiState.chartFilterYear == year) null else year)
+                            coroutineScope.launch { chartYearListState.revealItem(i) }
+                        },
+                        label = { Text(year.toString()) },
+                    )
+                }
+            }
+        }
+
+        // Month filter chips — only when a year is selected
+        if (uiState.chartFilterYear != null) {
+            val chartMonthListState = rememberLazyListState()
+            LazyRow(
+                state = chartMonthListState,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(monthNames.size) { idx ->
+                    val monthNum = idx + 1
+                    FilterChip(
+                        selected = uiState.chartFilterMonth == monthNum,
+                        onClick = {
+                            viewModel.setChartFilterMonth(if (uiState.chartFilterMonth == monthNum) null else monthNum)
+                            coroutineScope.launch { chartMonthListState.revealItem(idx) }
+                        },
+                        label = { Text(monthNames[idx]) },
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Filter the balance-over-time data by chart year/month
+        val filteredBalanceOverTime = viewModel.balanceOverTime.let { all ->
+            var result = all
+            uiState.chartFilterYear?.let { y -> result = result.filter { it.first.year == y } }
+            uiState.chartFilterMonth?.let { m -> result = result.filter { it.first.monthValue == m } }
+            result
+        }
+
+        val chartModifier = Modifier.fillMaxWidth().weight(1f)
         when (uiState.selectedChartType) {
             ChartType.LINE -> {
-                val data = viewModel.balanceOverTime.map { (dt, bal) ->
-                    dt.format(DateTimeFormatter.ofPattern("dd.MM")) to bal
+                val data = filteredBalanceOverTime.map { (dt, bal) ->
+                    dt.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")) to bal
                 }
-                LineChart(
-                    data = data,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(300.dp),
-                )
+                LineChart(data = data, modifier = chartModifier)
             }
-
             ChartType.BAR -> {
-                val data = viewModel.monthlyData.map { (month, pair) ->
+                val data = viewModel.monthlyData.entries.map { (month, pair) ->
                     Triple(month, pair.first, pair.second)
                 }
-                BarChart(
-                    data = data,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(300.dp),
-                )
+                BarChart(data = data, modifier = chartModifier)
             }
-
             ChartType.PIE -> {
-                val txns = uiState.transactions
-                val totalDeposits = txns.filter { it.type == TransactionType.DEPOSIT }.sumOf { it.amount }
-                val totalWithdrawals = txns.filter { it.type == TransactionType.WITHDRAWAL }.sumOf { it.amount }
-                val totalFees = txns.filter { it.type == TransactionType.FEE }.sumOf { it.amount }
+                val txns = uiState.transactions.let { all ->
+                    var result = all
+                    uiState.chartFilterYear?.let { y -> result = result.filter { it.date.year == y } }
+                    uiState.chartFilterMonth?.let { m -> result = result.filter { it.date.monthValue == m } }
+                    result
+                }
                 val slices = listOf(
-                    "Deposits" to totalDeposits,
-                    "Withdrawals" to totalWithdrawals,
-                    "Fees" to totalFees,
+                    "Deposits" to txns.filter { it.type == TransactionType.DEPOSIT }.sumOf { it.amount },
+                    "Withdrawals" to txns.filter { it.type == TransactionType.WITHDRAWAL }.sumOf { it.amount },
+                    "Fees" to txns.filter { it.type == TransactionType.FEE }.sumOf { it.amount },
                 ).filter { it.second > 0 }
-                PieChart(
-                    slices = slices,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(300.dp),
-                )
+                PieChart(slices = slices, modifier = chartModifier)
             }
+            ChartType.STACKED_AREA -> StackedAreaChart(data = viewModel.stackedAreaData, modifier = chartModifier)
         }
+    }
+
+    if (showChartInfoDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showChartInfoDialog = false },
+            title = { Text(uiState.selectedChartType.displayName) },
+            text = { Text(uiState.selectedChartType.description) },
+            confirmButton = {
+                TextButton(onClick = { showChartInfoDialog = false }) { Text("Got it") }
+            },
+        )
     }
 }
 
 @Composable
 private fun AnalysisTab(viewModel: TrendsViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    var analysisInfoDialog by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    val analysisSectionInfo = mapOf(
+        "Deposits vs Withdrawals" to "A horizontal bar comparing the total number of deposit vs withdrawal transactions.",
+        "Average Transaction" to "The mean amount across all your deposit transactions and separately across all withdrawal transactions.",
+        "Most Active Days" to "Which days of the week you deposit most frequently, shown as a bar chart.",
+        "Monthly Summary" to "Deposits and withdrawals per month with net change highlighted in green or red.",
+        "Income Frequency" to "How often you make deposits on average — daily, weekly, and monthly rates.",
+    )
+    val showScrollToTop by remember { derivedStateOf { listState.firstVisibleItemIndex >= 3 } }
+    val showScrollToBottom by remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val total = listState.layoutInfo.totalItemsCount
+            listState.firstVisibleItemIndex >= 3 && total > 0 && lastVisible < total - 1
+        }
+    }
+
+    val allHidden = AnalysisSection.entries.all { it.name in uiState.hiddenAnalysisSections }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+    if (allHidden) {
+        EmptyMessage("All sections are hidden.\nEnable them in Settings → Analysis Sections.", Icons.Default.PieChart)
+    } else {
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
+        contentPadding = PaddingValues(bottom = 72.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (AnalysisSection.STATISTICS.name !in uiState.hiddenAnalysisSections) {
         item {
-            AnalysisCard("Deposits vs Withdrawals") {
+            AnalysisCard("Deposits vs Withdrawals", onInfo = { analysisInfoDialog = "Deposits vs Withdrawals" to (analysisSectionInfo["Deposits vs Withdrawals"] ?: "") }) {
                 HorizontalComparisonBar(
                     label1 = "Deposits",
                     value1 = viewModel.depositCount.toDouble(),
@@ -595,16 +825,18 @@ private fun AnalysisTab(viewModel: TrendsViewModel) {
         }
 
         item {
-            AnalysisCard("Average Transaction") {
+            AnalysisCard("Average Transaction", onInfo = { analysisInfoDialog = "Average Transaction" to (analysisSectionInfo["Average Transaction"] ?: "") }) {
                 Row(modifier = Modifier.fillMaxWidth()) {
                     StatItem("Avg Deposit", "${fmtAmt(viewModel.averageDeposit)} RSD", Modifier.weight(1f))
                     StatItem("Avg Withdrawal", "${fmtAmt(viewModel.averageWithdrawal)} RSD", Modifier.weight(1f))
                 }
             }
         }
+        } // end STATISTICS
 
+        if (AnalysisSection.DEPOSITS_FREQUENCY.name !in uiState.hiddenAnalysisSections) {
         item {
-            AnalysisCard("Most Active Days") {
+            AnalysisCard("Most Active Days", onInfo = { analysisInfoDialog = "Most Active Days" to (analysisSectionInfo["Most Active Days"] ?: "") }) {
                 val freq = viewModel.depositsFrequency
                 if (freq.isEmpty()) {
                     Text("No data yet", style = MaterialTheme.typography.bodyMedium)
@@ -650,9 +882,11 @@ private fun AnalysisTab(viewModel: TrendsViewModel) {
                 }
             }
         }
+        } // end DEPOSITS_FREQUENCY
 
+        if (AnalysisSection.MONTHLY_BREAKDOWN.name !in uiState.hiddenAnalysisSections) {
         item {
-            AnalysisCard("Monthly Summary") {
+            AnalysisCard("Monthly Summary", onInfo = { analysisInfoDialog = "Monthly Summary" to (analysisSectionInfo["Monthly Summary"] ?: "") }) {
                 val data = viewModel.monthlyData
                 if (data.isEmpty()) {
                     Text("No data yet", style = MaterialTheme.typography.bodyMedium)
@@ -696,9 +930,11 @@ private fun AnalysisTab(viewModel: TrendsViewModel) {
                 }
             }
         }
+        } // end MONTHLY_BREAKDOWN
 
+        if (AnalysisSection.INCOME_FREQUENCY.name !in uiState.hiddenAnalysisSections) {
         item {
-            AnalysisCard("Income Frequency") {
+            AnalysisCard("Income Frequency", onInfo = { analysisInfoDialog = "Income Frequency" to (analysisSectionInfo["Income Frequency"] ?: "") }) {
                 val txns = viewModel.uiState.value.transactions
                 val deposits = txns.filter { it.type == TransactionType.DEPOSIT }
                 if (deposits.size < 2) {
@@ -715,12 +951,41 @@ private fun AnalysisTab(viewModel: TrendsViewModel) {
                 }
             }
         }
+        } // end DEPOSITS_FREQUENCY (Income Frequency)
     }
+    } // end else (not allHidden)
+
+    if (showScrollToBottom) {
+        SmallFloatingActionButton(
+            onClick = { coroutineScope.launch { listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1) } },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Scroll to bottom") }
+    }
+    if (showScrollToTop) {
+        SmallFloatingActionButton(
+            onClick = { coroutineScope.launch { listState.animateScrollToItem(0) } },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = if (showScrollToBottom) 60.dp else 12.dp),
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        ) { Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top") }
+    }
+    analysisInfoDialog?.let { (title, message) ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { analysisInfoDialog = null },
+            title = { Text(title) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { analysisInfoDialog = null }) { Text("Got it") }
+            },
+        )
+    }
+    } // end Box
 }
 
 @Composable
 private fun AnalysisCard(
     title: String,
+    onInfo: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     Card(
@@ -730,11 +995,31 @@ private fun AnalysisCard(
         ),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                if (onInfo != null) {
+                    IconButton(
+                        onClick = onInfo,
+                        modifier = Modifier.size(24.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = "More info",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(12.dp))
             content()
         }
@@ -742,15 +1027,29 @@ private fun AnalysisCard(
 }
 
 @Composable
-private fun HeaderCell(text: String, modifier: Modifier, textAlign: TextAlign = TextAlign.Start) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodyMedium,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onPrimaryContainer,
-        textAlign = textAlign,
-        modifier = modifier,
-    )
+private fun SortableHeaderCell(
+    text: String,
+    field: SortField,
+    uiState: TrendsUiState,
+    modifier: Modifier,
+    textAlign: TextAlign = TextAlign.Start,
+    onClick: () -> Unit,
+) {
+    val isActive = uiState.sortField == field
+    val arrow = if (isActive) (if (uiState.sortOrder == SortOrder.ASC) " ↑" else " ↓") else ""
+    val arrangement = if (textAlign == TextAlign.End) Arrangement.End else Arrangement.Start
+    Row(
+        modifier = modifier.clickable(onClick = onClick),
+        horizontalArrangement = arrangement,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "$text$arrow",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.Bold,
+            color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+    }
 }
 
 @Composable
@@ -775,8 +1074,48 @@ private fun FreqRow(label: String, value: String) {
 }
 
 @Composable
-private fun EmptyMessage(text: String) {
+private fun EmptyMessage(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector? = null) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(80.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/**
+ * Scrolls a LazyRow the minimum amount needed to fully reveal the item at [index].
+ * If already fully visible → no scroll. Partially clipped left → scroll left just enough.
+ * Partially clipped right → scroll right just enough. Fully off-screen → falls back to animateScrollToItem.
+ */
+private suspend fun androidx.compose.foundation.lazy.LazyListState.revealItem(index: Int) {
+    val info = layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.index == index }
+    if (item == null) {
+        animateScrollToItem(index)
+        return
+    }
+    val viewportStart = info.viewportStartOffset
+    val viewportEnd = info.viewportEndOffset
+    val itemStart = item.offset
+    val itemEnd = item.offset + item.size
+    when {
+        itemStart < viewportStart -> animateScrollBy((itemStart - viewportStart).toFloat())
+        itemEnd > viewportEnd -> animateScrollBy((itemEnd - viewportEnd).toFloat())
     }
 }
