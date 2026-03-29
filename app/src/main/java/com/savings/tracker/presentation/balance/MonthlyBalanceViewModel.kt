@@ -2,6 +2,7 @@ package com.savings.tracker.presentation.balance
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.savings.tracker.domain.model.Transaction
 import com.savings.tracker.domain.model.TransactionType
 import com.savings.tracker.domain.usecase.GetTransactionsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,9 +21,12 @@ data class MonthSummary(
     val endingBalance: Double,
     val deposits: Double,
     val withdrawals: Double,
+    val transactions: List<Transaction> = emptyList(),
 ) {
     val netChange: Double get() = endingBalance - startingBalance
 }
+
+enum class MonthlySortBy { MONTH, CHANGE, ENDING_BALANCE }
 
 data class MonthlyBalanceUiState(
     val isLoading: Boolean = true,
@@ -30,6 +34,8 @@ data class MonthlyBalanceUiState(
     val selectedYear: Int? = null,
     val monthlySummaries: List<MonthSummary> = emptyList(),
     val yearSummary: Double = 0.0,
+    val sortBy: MonthlySortBy = MonthlySortBy.MONTH,
+    val sortDescending: Boolean = true,
 )
 
 @HiltViewModel
@@ -63,6 +69,7 @@ class MonthlyBalanceViewModel @Inject constructor(
                         endingBalance = runningBalance,
                         deposits = deposits,
                         withdrawals = withdrawals,
+                        transactions = txns.sortedBy { it.date },
                     )
                 }
 
@@ -70,15 +77,14 @@ class MonthlyBalanceViewModel @Inject constructor(
                 val years = summaries.map { it.yearMonth.year }.distinct().sortedDescending()
                 val selectedYear = _uiState.value.selectedYear ?: years.firstOrNull()
 
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    val filtered = summaries.filter { s -> s.yearMonth.year == selectedYear }
+                    state.copy(
                         isLoading = false,
                         years = years,
                         selectedYear = selectedYear,
-                        monthlySummaries = summaries.filter { s -> s.yearMonth.year == selectedYear }
-                            .sortedByDescending { s -> s.yearMonth },
-                        yearSummary = summaries.filter { s -> s.yearMonth.year == selectedYear }
-                            .sumOf { s -> s.netChange },
+                        monthlySummaries = filtered.applySorting(state.sortBy, state.sortDescending),
+                        yearSummary = filtered.sumOf { s -> s.netChange },
                     )
                 }
             }
@@ -87,13 +93,34 @@ class MonthlyBalanceViewModel @Inject constructor(
 
     fun selectYear(year: Int) {
         _uiState.update {
+            val filtered = allSummaries.filter { s -> s.yearMonth.year == year }
             it.copy(
                 selectedYear = year,
-                monthlySummaries = allSummaries.filter { s -> s.yearMonth.year == year }
-                    .sortedByDescending { s -> s.yearMonth },
-                yearSummary = allSummaries.filter { s -> s.yearMonth.year == year }
-                    .sumOf { s -> s.netChange },
+                monthlySummaries = filtered.applySorting(it.sortBy, it.sortDescending),
+                yearSummary = filtered.sumOf { s -> s.netChange },
             )
         }
     }
+
+    fun setSortBy(sortBy: MonthlySortBy) {
+        _uiState.update { state ->
+            val newDescending = if (state.sortBy == sortBy) !state.sortDescending else true
+            val year = state.selectedYear
+            val filtered = if (year != null) allSummaries.filter { it.yearMonth.year == year } else emptyList()
+            state.copy(
+                sortBy = sortBy,
+                sortDescending = newDescending,
+                monthlySummaries = filtered.applySorting(sortBy, newDescending),
+            )
+        }
+    }
+}
+
+private fun List<MonthSummary>.applySorting(sortBy: MonthlySortBy, descending: Boolean): List<MonthSummary> {
+    val sorted = when (sortBy) {
+        MonthlySortBy.MONTH -> sortedBy { it.yearMonth }
+        MonthlySortBy.CHANGE -> sortedBy { it.netChange }
+        MonthlySortBy.ENDING_BALANCE -> sortedBy { it.endingBalance }
+    }
+    return if (descending) sorted.reversed() else sorted
 }

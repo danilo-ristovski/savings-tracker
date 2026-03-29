@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -87,6 +88,7 @@ fun TransactionDialog(
     currentBalance: Double,
     onConfirm: (amount: Double, date: LocalDateTime, note: String, categoryId: Long?) -> Unit,
     onDismiss: () -> Unit,
+    onInteraction: () -> Unit = {},
     editTransaction: Transaction? = null,
     categories: List<Category> = emptyList(),
 ) {
@@ -123,6 +125,17 @@ fun TransactionDialog(
     val isWithdrawalExceedsBalance = type == TransactionType.WITHDRAWAL && balanceAfter < 0
     val isValid = amount > 0
 
+    val filteredCategories = categories.filter { cat ->
+        when (cat.type) {
+            com.savings.tracker.domain.model.CategoryType.ANY -> true
+            com.savings.tracker.domain.model.CategoryType.DEPOSIT -> type == TransactionType.DEPOSIT
+            com.savings.tracker.domain.model.CategoryType.WITHDRAWAL -> type == TransactionType.WITHDRAWAL || type == TransactionType.FEE
+        }
+    }
+    if (filteredCategories.none { it.id == selectedCategoryId }) {
+        selectedCategoryId = null
+    }
+
     val title = if (editTransaction != null) {
         if (type == TransactionType.DEPOSIT) "Edit Deposit" else "Edit Withdrawal"
     } else if (type == TransactionType.DEPOSIT) {
@@ -142,7 +155,10 @@ fun TransactionDialog(
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            onInteraction()
+            onDismiss()
+        },
         title = {
             Column {
                 Box(
@@ -167,7 +183,10 @@ fun TransactionDialog(
                     state = rememberTooltipState()
                 ) {
                     FilledTonalButton(
-                        onClick = { showDatePicker = true },
+                        onClick = {
+                            onInteraction()
+                            showDatePicker = true
+                        },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
@@ -184,6 +203,7 @@ fun TransactionDialog(
                 OutlinedTextField(
                     value = amountFieldValue,
                     onValueChange = { newValue ->
+                        onInteraction()
                         val newRaw = stripThousands(newValue.text).filter { it.isDigit() }
                         val display = formatWithThousands(newRaw)
                         amountFieldValue = TextFieldValue(display, TextRange(display.length))
@@ -199,7 +219,10 @@ fun TransactionDialog(
 
                 OutlinedTextField(
                     value = note,
-                    onValueChange = { note = it },
+                    onValueChange = {
+                        onInteraction()
+                        note = it
+                    },
                     label = { Text("Note (optional)") },
                     singleLine = false,
                     minLines = 3,
@@ -211,11 +234,14 @@ fun TransactionDialog(
                 )
 
                 // Category picker
-                if (categories.isNotEmpty()) {
+                if (filteredCategories.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    val categoryName = categories.find { it.id == selectedCategoryId }?.name
+                    val categoryName = filteredCategories.find { it.id == selectedCategoryId }?.name
                     FilledTonalButton(
-                        onClick = { showCategoryPicker = true },
+                        onClick = {
+                            onInteraction()
+                            showCategoryPicker = true
+                        },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(categoryName ?: "Select Category (optional)")
@@ -223,6 +249,15 @@ fun TransactionDialog(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                if (editTransaction == null) {
+                    Text(
+                        text = "Balance before: ${formatAmountRsd(adjustedBalance)} RSD",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
 
                 val balanceAfterColor = if (balanceAfter >= 0) {
                     MaterialTheme.colorScheme.tertiary
@@ -245,6 +280,26 @@ fun TransactionDialog(
                         color = MaterialTheme.colorScheme.error
                     )
                 }
+
+                if (editTransaction != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    val historyFmt = remember { DateTimeFormatter.ofPattern("dd.MM.yyyy. HH:mm") }
+                    Text(
+                        text = "Created: ${editTransaction.createdAt.format(historyFmt)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    editTransaction.updatedAt?.let { updated ->
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Updated: ${updated.format(historyFmt)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -255,6 +310,7 @@ fun TransactionDialog(
             ) {
                 TextButton(
                     onClick = {
+                        onInteraction()
                         onConfirm(
                             amount,
                             LocalDateTime.of(selectedDate, editTransaction?.date?.toLocalTime() ?: LocalTime.now()),
@@ -274,7 +330,10 @@ fun TransactionDialog(
                 tooltip = { PlainTooltip { Text("Cancel transaction") } },
                 state = rememberTooltipState()
             ) {
-                TextButton(onClick = onDismiss) {
+                TextButton(onClick = {
+                    onInteraction()
+                    onDismiss()
+                }) {
                     Text("Cancel")
                 }
             }
@@ -343,7 +402,7 @@ fun TransactionDialog(
 
     if (showCategoryPicker) {
         CategoryPickerBottomSheet(
-            categories = categories,
+            categories = filteredCategories,
             selectedCategoryId = selectedCategoryId,
             onCategorySelected = { category ->
                 selectedCategoryId = category?.id

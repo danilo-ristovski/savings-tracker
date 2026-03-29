@@ -22,6 +22,10 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 class PreferencesManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    // In-memory timestamp — persists across Activity recreations within the same process
+    @Volatile
+    var lastInteractionTime: Long = System.currentTimeMillis()
+
 
     private object Keys {
         val ENCRYPTED_PIN = stringPreferencesKey("encrypted_pin")
@@ -36,6 +40,11 @@ class PreferencesManager @Inject constructor(
         val DEMO_MODE = booleanPreferencesKey("demo_mode")
         val BIOMETRIC_ENABLED = booleanPreferencesKey("biometric_enabled")
         val SHAKE_LOGOUT_ENABLED = booleanPreferencesKey("shake_logout_enabled")
+        val TRENDS_SORT_FIELD = stringPreferencesKey("trends_sort_field")
+        val TRENDS_SORT_ORDER = stringPreferencesKey("trends_sort_order")
+        val AUTO_BLUR_ENABLED = booleanPreferencesKey("auto_blur_enabled")
+        val ANALYSIS_HIDDEN_SECTIONS = stringPreferencesKey("analysis_hidden_sections")
+        val CHART_HIDDEN_TYPES = stringPreferencesKey("chart_hidden_types")
     }
 
     // Encrypted PIN
@@ -144,6 +153,52 @@ class PreferencesManager @Inject constructor(
 
     suspend fun setShakeLogoutEnabled(value: Boolean) {
         context.dataStore.edit { prefs -> prefs[Keys.SHAKE_LOGOUT_ENABLED] = value }
+    }
+
+    // Trends Sort
+    val trendsSortFieldFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.TRENDS_SORT_FIELD] ?: "DATE"
+    }
+
+    val trendsSortOrderFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.TRENDS_SORT_ORDER] ?: "ASC"
+    }
+
+    suspend fun setTrendsSortField(value: String) {
+        context.dataStore.edit { prefs -> prefs[Keys.TRENDS_SORT_FIELD] = value }
+    }
+
+    suspend fun setTrendsSortOrder(value: String) {
+        context.dataStore.edit { prefs -> prefs[Keys.TRENDS_SORT_ORDER] = value }
+    }
+
+    // Auto Blur
+    val autoBlurEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.AUTO_BLUR_ENABLED] ?: false
+    }
+
+    suspend fun setAutoBlurEnabled(value: Boolean) {
+        context.dataStore.edit { prefs -> prefs[Keys.AUTO_BLUR_ENABLED] = value }
+    }
+
+    // Analysis Hidden Sections
+    val analysisHiddenSectionsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        val csv = prefs[Keys.ANALYSIS_HIDDEN_SECTIONS] ?: ""
+        if (csv.isBlank()) emptySet() else csv.split(",").toSet()
+    }
+
+    suspend fun setAnalysisHiddenSections(sections: Set<String>) {
+        context.dataStore.edit { it[Keys.ANALYSIS_HIDDEN_SECTIONS] = sections.joinToString(",") }
+    }
+
+    // Chart Hidden Types
+    val chartHiddenTypesFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        val csv = prefs[Keys.CHART_HIDDEN_TYPES] ?: ""
+        if (csv.isBlank()) emptySet() else csv.split(",").toSet()
+    }
+
+    suspend fun setChartHiddenTypes(types: Set<String>) {
+        context.dataStore.edit { it[Keys.CHART_HIDDEN_TYPES] = types.joinToString(",") }
     }
 
     // Clear All

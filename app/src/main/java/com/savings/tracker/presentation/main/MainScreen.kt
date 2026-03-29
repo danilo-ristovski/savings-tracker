@@ -1,5 +1,7 @@
 package com.savings.tracker.presentation.main
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,15 +44,24 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
@@ -76,6 +87,22 @@ fun MainScreen(
         DateTimeFormatter.ofPattern("dd.MM.yyyy. HH:mm")
     }
 
+    DisposableEffect(Unit) {
+        viewModel.resetInactivityTimer()
+        onDispose { viewModel.cancelInactivityTimer() }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.resetInactivityTimer()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Observe cross-screen snackbar messages
     LaunchedEffect(Unit) {
         val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
@@ -96,6 +123,42 @@ fun MainScreen(
     }
 
     var showLogoutConfirm by remember { mutableStateOf(false) }
+
+    // Auto-logout when inactivity dialog times out
+    val shouldNavigateToPin by viewModel.shouldNavigateToPin.collectAsState()
+    LaunchedEffect(shouldNavigateToPin) {
+        if (shouldNavigateToPin) {
+            viewModel.consumeNavigateToPin()
+            navController.navigate(Routes.PIN_LOGIN) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+
+    // Inactivity blur — timer is managed in the ViewModel's stable coroutine scope
+    val inactivityTriggered by viewModel.inactivityTriggered.collectAsState()
+    val dialogShowing = showLogoutConfirm || state.currentTip != null || (inactivityTriggered && state.autoBlurEnabled)
+
+    val blurRadius: Dp by animateDpAsState(
+        targetValue = if (dialogShowing) 16.dp else 0.dp,
+        animationSpec = tween(durationMillis = 700),
+        label = "blur",
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.type == PointerEventType.Press) {
+                            viewModel.resetInactivityTimer()
+                        }
+                    }
+                }
+            },
+    ) {
 
     Scaffold(
         topBar = {
@@ -170,7 +233,8 @@ fun MainScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = 24.dp)
+                    .blur(blurRadius),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
             ) {
@@ -397,14 +461,18 @@ fun MainScreen(
                 )
                 showTransactionDialog = false
             },
-            onDismiss = { showTransactionDialog = false }
+            onDismiss = { showTransactionDialog = false },
+            onInteraction = { viewModel.resetInactivityTimer() },
         )
     }
 
     // Logout confirmation dialog
     if (showLogoutConfirm) {
         AlertDialog(
-            onDismissRequest = { showLogoutConfirm = false },
+            onDismissRequest = {
+                viewModel.resetInactivityTimer()
+                showLogoutConfirm = false
+            },
             title = { Text("Log Out") },
             text = { Text("Confirm you want to log out from the application.") },
             confirmButton = {
@@ -423,7 +491,10 @@ fun MainScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showLogoutConfirm = false }) {
+                TextButton(onClick = {
+                    viewModel.resetInactivityTimer()
+                    showLogoutConfirm = false
+                }) {
                     Text("Cancel")
                 }
             },
@@ -433,7 +504,10 @@ fun MainScreen(
     // Tip dialog
     state.currentTip?.let { tip ->
         AlertDialog(
-            onDismissRequest = { viewModel.dismissTip() },
+            onDismissRequest = {
+                viewModel.resetInactivityTimer()
+                viewModel.dismissTip()
+            },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -447,15 +521,49 @@ fun MainScreen(
             },
             text = { Text(tip) },
             confirmButton = {
-                TextButton(onClick = { viewModel.showNextTip() }) {
+                TextButton(onClick = {
+                    viewModel.resetInactivityTimer()
+                    viewModel.showNextTip()
+                }) {
                     Text("Next Tip")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.dismissTip() }) {
+                TextButton(onClick = {
+                    viewModel.resetInactivityTimer()
+                    viewModel.dismissTip()
+                }) {
                     Text("Close")
                 }
             },
         )
     }
+    // Inactivity blur dialog
+    if (inactivityTriggered && state.autoBlurEnabled) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissInactivityDialog() },
+            title = { Text("Inactivity detected", fontWeight = FontWeight.Bold) },
+            text = { Text("The screen was locked due to inactivity.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        navController.navigate(Routes.PIN_LOGIN) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) {
+                    Text("Logout")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissInactivityDialog() }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+    } // end outer Box
 }

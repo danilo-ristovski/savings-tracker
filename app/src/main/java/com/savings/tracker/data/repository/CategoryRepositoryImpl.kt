@@ -42,14 +42,14 @@ class CategoryRepositoryImpl @Inject constructor(
                 CategoryEntity(
                     name = "savings_part_1",
                     notes = "After the payment on the last day of the ongoing month",
-                    isPredefined = true
+                    isPredefined = false
                 )
             )
             categoryDao.insert(
                 CategoryEntity(
                     name = "savings_part_2",
                     notes = "After the payment on the 10th day of the following month",
-                    isPredefined = true
+                    isPredefined = false
                 )
             )
         }

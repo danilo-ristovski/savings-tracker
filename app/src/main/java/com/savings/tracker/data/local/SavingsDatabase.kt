@@ -11,7 +11,7 @@ import com.savings.tracker.data.local.entity.TransactionEntity
 
 @Database(
     entities = [TransactionEntity::class, CategoryEntity::class],
-    version = 3,
+    version = 6,
     exportSchema = false
 )
 abstract class SavingsDatabase : RoomDatabase() {
@@ -37,6 +37,25 @@ abstract class SavingsDatabase : RoomDatabase() {
                 )
                 // Add categoryId column to transactions
                 db.execSQL("ALTER TABLE transactions ADD COLUMN categoryId INTEGER DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN updatedAt INTEGER DEFAULT NULL")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE categories ADD COLUMN type TEXT NOT NULL DEFAULT 'ANY'")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Remove predefined status from savings_part_1 and savings_part_2
+                db.execSQL("UPDATE categories SET isPredefined = 0 WHERE name IN ('savings_part_1', 'savings_part_2')")
             }
         }
     }

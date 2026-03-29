@@ -17,11 +17,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.SettingsBrightness
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -56,15 +54,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.savings.tracker.data.biometric.BiometricHelper
+import com.savings.tracker.domain.model.AnalysisSection
 import com.savings.tracker.domain.model.Category
+import com.savings.tracker.domain.model.CategoryType
 import com.savings.tracker.domain.model.ThemeMode
+import com.savings.tracker.presentation.trends.ChartType
 import com.savings.tracker.presentation.pin.PinDots
 import com.savings.tracker.presentation.pin.PinKeypad
 import kotlinx.coroutines.launch
@@ -89,6 +94,7 @@ fun SettingsScreen(
     var isConfirmStep by remember { mutableStateOf(false) }
     var resetPinError by remember { mutableStateOf<String?>(null) }
     var showDemoModeDialog by remember { mutableStateOf(false) }
+    var infoDialog by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     // Category state
     var showAddCategoryDialog by remember { mutableStateOf(false) }
@@ -159,12 +165,12 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     val modes = listOf(
-                        Triple(ThemeMode.LIGHT, "Light", Icons.Default.LightMode),
-                        Triple(ThemeMode.DARK, "Dark", Icons.Default.DarkMode),
-                        Triple(ThemeMode.SYSTEM, "System", Icons.Default.SettingsBrightness),
+                        ThemeMode.LIGHT to "Light",
+                        ThemeMode.DARK to "Dark",
+                        ThemeMode.SYSTEM to "System",
                     )
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                        modes.forEachIndexed { index, (mode, label, icon) ->
+                        modes.forEachIndexed { index, (mode, label) ->
                             SegmentedButton(
                                 selected = uiState.themeMode == mode,
                                 onClick = { viewModel.setThemeMode(mode) },
@@ -172,15 +178,7 @@ fun SettingsScreen(
                                     index = index,
                                     count = modes.size,
                                 ),
-                                icon = {
-                                    SegmentedButtonDefaults.Icon(active = uiState.themeMode == mode) {
-                                        Icon(
-                                            imageVector = icon,
-                                            contentDescription = label,
-                                            modifier = Modifier.size(SegmentedButtonDefaults.IconSize),
-                                        )
-                                    }
-                                },
+                                icon = {},
                             ) {
                                 Text(label)
                             }
@@ -354,10 +352,165 @@ fun SettingsScreen(
                             onCheckedChange = { viewModel.setShakeLogoutEnabled(it) },
                         )
                     }
+
+                    // Auto blur toggle
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-blur after inactivity",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = "Blurs the screen after 15 seconds of inactivity",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = uiState.isAutoBlurEnabled,
+                            onCheckedChange = { viewModel.setAutoBlurEnabled(it) },
+                        )
+                    }
+                }
+            }
+
+            // Analysis Sections
+            SectionHeader("Analysis Sections")
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                ),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Choose which sections to show in the Analysis tab",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val allAnalysisVisible = AnalysisSection.entries.none { it.name in uiState.analysisHiddenSections }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Show all", style = MaterialTheme.typography.bodyMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                        Switch(
+                            checked = allAnalysisVisible,
+                            onCheckedChange = { showAll -> viewModel.setAllAnalysisSectionsVisible(showAll) },
+                        )
+                    }
+                    androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    AnalysisSection.entries.forEach { section ->
+                        val sectionDescription = when (section) {
+                            AnalysisSection.STATISTICS -> "Count comparison of deposits vs withdrawals, plus average deposit and withdrawal amounts."
+                            AnalysisSection.DEPOSITS_FREQUENCY -> "Which days of the week you deposit most frequently, shown as a bar chart."
+                            AnalysisSection.MONTHLY_BREAKDOWN -> "Deposits and withdrawals per month with net change highlighted in green or red."
+                            AnalysisSection.INCOME_FREQUENCY -> "How often you make deposits on average — daily, weekly, and monthly rates."
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(
+                                    text = section.displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                IconButton(
+                                    onClick = { infoDialog = section.displayName to sectionDescription },
+                                    modifier = Modifier.size(20.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = "More info",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = section.name !in uiState.analysisHiddenSections,
+                                onCheckedChange = { viewModel.toggleAnalysisSection(section.name) },
+                            )
+                        }
+                    }
                 }
             }
 
             // Data Management Section
+            // Chart Types Section
+            SectionHeader("Chart Types")
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Choose which chart types are available on the Charts tab",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val allChartTypesVisible = ChartType.entries.none { it.name in uiState.hiddenChartTypes }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Show all", style = MaterialTheme.typography.bodyMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                        Switch(
+                            checked = allChartTypesVisible,
+                            onCheckedChange = { showAll -> viewModel.setAllChartTypesVisible(showAll) },
+                        )
+                    }
+                    androidx.compose.material3.HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    ChartType.entries.forEach { ct ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(ct.displayName, style = MaterialTheme.typography.bodyMedium)
+                                IconButton(
+                                    onClick = { infoDialog = ct.displayName to ct.description },
+                                    modifier = Modifier.size(20.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = "More info",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = ct.name !in uiState.hiddenChartTypes,
+                                onCheckedChange = { viewModel.toggleChartType(ct.name) },
+                            )
+                        }
+                    }
+                }
+            }
+
             SectionHeader("Data Management")
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -602,9 +755,10 @@ fun SettingsScreen(
     if (showAddCategoryDialog) {
         CategoryDialog(
             title = "Add Category",
+            autoFocus = true,
             onDismiss = { showAddCategoryDialog = false },
-            onConfirm = { name, notes ->
-                viewModel.addCategory(name, notes)
+            onConfirm = { name, notes, type ->
+                viewModel.addCategory(name, notes, type)
                 showAddCategoryDialog = false
             },
         )
@@ -616,10 +770,24 @@ fun SettingsScreen(
             title = "Edit Category",
             initialName = category.name,
             initialNotes = category.notes,
+            initialType = category.type,
+            isEditing = true,
             onDismiss = { editingCategory = null },
-            onConfirm = { name, notes ->
-                viewModel.updateCategory(category.copy(name = name, notes = notes))
+            onConfirm = { name, notes, type ->
+                viewModel.updateCategory(category.copy(name = name, notes = notes, type = type))
                 editingCategory = null
+            },
+        )
+    }
+
+    // Info dialog for toggle items
+    infoDialog?.let { (title, message) ->
+        AlertDialog(
+            onDismissRequest = { infoDialog = null },
+            title = { Text(title) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { infoDialog = null }) { Text("Got it") }
             },
         )
     }
@@ -657,12 +825,23 @@ private fun CategoryDialog(
     title: String,
     initialName: String = "",
     initialNotes: String = "",
+    initialType: CategoryType = CategoryType.ANY,
+    isEditing: Boolean = false,
+    autoFocus: Boolean = false,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, notes: String) -> Unit,
+    onConfirm: (name: String, notes: String, type: CategoryType) -> Unit,
 ) {
     var name by remember { mutableStateOf(initialName) }
     var notes by remember { mutableStateOf(initialNotes) }
+    var selectedType by remember { mutableStateOf(initialType) }
     var nameError by remember { mutableStateOf<String?>(null) }
+    val nameFocusRequester = remember { FocusRequester() }
+
+    if (autoFocus) {
+        LaunchedEffect(Unit) {
+            nameFocusRequester.requestFocus()
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -680,7 +859,10 @@ private fun CategoryDialog(
                     singleLine = true,
                     isError = nameError != null,
                     supportingText = nameError?.let { { Text(it) } },
-                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(nameFocusRequester),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
@@ -690,8 +872,40 @@ private fun CategoryDialog(
                     singleLine = false,
                     minLines = 2,
                     maxLines = 4,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                    ),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Applies to", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(4.dp))
+                if (isEditing) {
+                    val typeLabel = when (selectedType) {
+                        CategoryType.DEPOSIT -> "Deposit"
+                        CategoryType.WITHDRAWAL -> "Withdrawal"
+                        CategoryType.ANY -> "Any"
+                    }
+                    Text(
+                        text = typeLabel,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                } else {
+                    val typeOptions = listOf(CategoryType.DEPOSIT, CategoryType.ANY, CategoryType.WITHDRAWAL)
+                    val typeLabels = listOf("Deposit", "Any", "Withdrawal")
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        typeOptions.forEachIndexed { index, option ->
+                            SegmentedButton(
+                                selected = selectedType == option,
+                                onClick = { selectedType = option },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = typeOptions.size),
+                                icon = {},
+                                label = { Text(typeLabels[index]) },
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -700,7 +914,7 @@ private fun CategoryDialog(
                     if (name.isBlank()) {
                         nameError = "Name is required"
                     } else {
-                        onConfirm(name, notes)
+                        onConfirm(name, notes, selectedType)
                     }
                 },
             ) {

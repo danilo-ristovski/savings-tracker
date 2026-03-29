@@ -11,13 +11,14 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.getSystemService
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -32,23 +33,47 @@ import com.savings.tracker.presentation.settings.SettingsScreen
 import com.savings.tracker.presentation.trends.TrendsScreen
 import kotlinx.coroutines.delay
 
-private const val INACTIVITY_TIMEOUT_MS = 180_000L
+private const val INACTIVITY_TIMEOUT_MS = 60_000L
 
 @Composable
 fun NavGraph(startDestination: String, preferencesManager: PreferencesManager) {
     val navController = rememberNavController()
-    var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
 
-    // Auto-logout after inactivity
-    LaunchedEffect(lastInteractionTime) {
-        if (currentRoute != Routes.PIN_LOGIN && currentRoute != Routes.PIN_SETUP) {
-            delay(INACTIVITY_TIMEOUT_MS)
-            navController.navigate(Routes.PIN_LOGIN) {
-                popUpTo(0) { inclusive = true }
+    // On app resume from background: immediately check if timeout already elapsed
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val route = navController.currentDestination?.route
+                if (route != Routes.PIN_LOGIN && route != Routes.PIN_SETUP) {
+                    val elapsed = System.currentTimeMillis() - preferencesManager.lastInteractionTime
+                    if (elapsed >= INACTIVITY_TIMEOUT_MS) {
+                        navController.navigate(Routes.PIN_LOGIN) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Polling loop for inactivity while app is in foreground
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000L)
+            if (currentRoute != Routes.PIN_LOGIN && currentRoute != Routes.PIN_SETUP) {
+                if (System.currentTimeMillis() - preferencesManager.lastInteractionTime >= INACTIVITY_TIMEOUT_MS) {
+                    navController.navigate(Routes.PIN_LOGIN) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                    break
+                }
             }
         }
     }
@@ -88,8 +113,8 @@ fun NavGraph(startDestination: String, preferencesManager: PreferencesManager) {
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
-                        awaitPointerEvent()
-                        lastInteractionTime = System.currentTimeMillis()
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        preferencesManager.lastInteractionTime = System.currentTimeMillis()
                     }
                 }
             }

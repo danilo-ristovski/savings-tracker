@@ -47,6 +47,9 @@ abstract class AppModule {
             ).addMigrations(
                 SavingsDatabase.MIGRATION_1_2,
                 SavingsDatabase.MIGRATION_2_3,
+                SavingsDatabase.MIGRATION_3_4,
+                SavingsDatabase.MIGRATION_4_5,
+                SavingsDatabase.MIGRATION_5_6,
             ).build()
         }
 

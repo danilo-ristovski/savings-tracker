@@ -5,6 +5,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,54 +86,83 @@ fun LineChart(
     }
 
     val lineColor = MaterialTheme.colorScheme.primary
+    val selectedDotColor = MaterialTheme.colorScheme.tertiary
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val textColor = MaterialTheme.colorScheme.onSurface
+    val primaryColor = MaterialTheme.colorScheme.primary
     val density = LocalDensity.current
 
     var selectedIndex by remember { mutableStateOf<Int?>(null) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
-    // Store computed point positions for tooltip placement
     var pointPositions by remember { mutableStateOf<List<Offset>>(emptyList()) }
 
+    // Zoom/pan state: scale ∈ [1, data.size/5], panFraction ∈ [0, 1]
+    var zoomScale by remember(data) { mutableFloatStateOf(1f) }
+    var panFraction by remember(data) { mutableFloatStateOf(0f) }
+
+    val visibleCount = (data.size / zoomScale).toInt().coerceIn(5.coerceAtMost(data.size), data.size)
+    val maxStartIndex = (data.size - visibleCount).coerceAtLeast(0)
+    val startIndex = (panFraction * maxStartIndex).toInt().coerceIn(0, maxStartIndex)
+    val visibleData = if (data.size <= 1) data else data.subList(startIndex, startIndex + visibleCount)
+
     val paddingStart = with(density) { 48.dp.toPx() }
-    val paddingEnd = with(density) { 16.dp.toPx() }
     val paddingTop = with(density) { 16.dp.toPx() }
-    val paddingBottom = with(density) { 32.dp.toPx() }
 
     Box(modifier = modifier) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 48.dp, end = 16.dp, top = 16.dp, bottom = 32.dp)
+                .padding(start = 48.dp, end = 16.dp, top = 16.dp, bottom = 48.dp)
                 .onSizeChanged { canvasSize = it }
                 .pointerInput(data) {
-                    detectTapGestures { tapOffset ->
-                        val w = canvasSize.width.toFloat()
-                        val h = canvasSize.height.toFloat()
-                        val maxVal = data.maxOf { it.second }.coerceAtLeast(1.0)
-                        val minVal = data.minOf { it.second }
-                        val range = (maxVal - minVal).coerceAtLeast(1.0)
-
-                        val points = data.mapIndexed { index, (_, value) ->
-                            val x = if (data.size == 1) w / 2 else w * index / (data.size - 1)
-                            val y = h - ((value - minVal) / range * h).toFloat()
-                            Offset(x, y)
+                    coroutineScope {
+                        launch {
+                            detectTransformGestures { _, pan, gestureZoom, _ ->
+                                val newScale = (zoomScale * gestureZoom).coerceIn(1f, (data.size / 5f).coerceAtLeast(1f))
+                                zoomScale = newScale
+                                val currentVisibleCount = (data.size / newScale).toInt().coerceIn(5.coerceAtMost(data.size), data.size)
+                                val currentMaxStart = (data.size - currentVisibleCount).coerceAtLeast(0)
+                                if (currentMaxStart > 0 && canvasSize.width > 0) {
+                                    val panDelta = -pan.x / canvasSize.width.toFloat()
+                                    panFraction = (panFraction + panDelta).coerceIn(0f, 1f)
+                                }
+                                if (gestureZoom != 1f) selectedIndex = null
+                            }
                         }
+                        launch {
+                            detectTapGestures { tapOffset ->
+                                val w = canvasSize.width.toFloat()
+                                val h = canvasSize.height.toFloat()
+                                // Recompute visible window at tap time using current state
+                                val currentVisibleCount = (data.size / zoomScale).toInt().coerceIn(5.coerceAtMost(data.size), data.size)
+                                val currentMaxStart = (data.size - currentVisibleCount).coerceAtLeast(0)
+                                val currentStart = (panFraction * currentMaxStart).toInt().coerceIn(0, currentMaxStart)
+                                val currentVisible = if (data.size <= 1) data else data.subList(currentStart, currentStart + currentVisibleCount)
 
-                        val touchRadius = 48f
-                        val tappedIndex = points.indexOfFirst { pt ->
-                            val dx = pt.x - tapOffset.x
-                            val dy = pt.y - tapOffset.y
-                            sqrt(dx * dx + dy * dy) < touchRadius
+                                val maxVal = currentVisible.maxOf { it.second }.coerceAtLeast(1.0)
+                                val minVal = currentVisible.minOf { it.second }
+                                val range = (maxVal - minVal).coerceAtLeast(1.0)
+                                val points = currentVisible.mapIndexed { index, (_, value) ->
+                                    val x = if (currentVisible.size == 1) w / 2 else w * index / (currentVisible.size - 1)
+                                    val y = h - ((value - minVal) / range * h).toFloat()
+                                    Offset(x, y)
+                                }
+                                val touchRadius = 48f
+                                val tappedIndex = points.indexOfFirst { pt ->
+                                    val dx = pt.x - tapOffset.x
+                                    val dy = pt.y - tapOffset.y
+                                    sqrt(dx * dx + dy * dy) < touchRadius
+                                }
+                                selectedIndex = if (tappedIndex >= 0 && tappedIndex != selectedIndex) tappedIndex else null
+                            }
                         }
-                        selectedIndex = if (tappedIndex >= 0 && tappedIndex != selectedIndex) tappedIndex else null
                     }
                 },
         ) {
             val w = size.width
             val h = size.height
-            val maxVal = data.maxOf { it.second }.coerceAtLeast(1.0)
-            val minVal = data.minOf { it.second }
+            val maxVal = visibleData.maxOf { it.second }.coerceAtLeast(1.0)
+            val minVal = visibleData.minOf { it.second }
             val range = (maxVal - minVal).coerceAtLeast(1.0)
 
             // Grid lines
@@ -139,7 +172,7 @@ fun LineChart(
                 drawLine(gridColor, Offset(0f, y), Offset(w, y), strokeWidth = 1f)
                 val labelValue = minVal + range * i / gridCount
                 drawContext.canvas.nativeCanvas.drawText(
-                    "%.0f".format(labelValue),
+                    formatAmountRsd(labelValue),
                     -with(density) { 44.dp.toPx() },
                     y + with(density) { 4.sp.toPx() },
                     android.graphics.Paint().apply {
@@ -150,10 +183,54 @@ fun LineChart(
                 )
             }
 
+            // Year boundary separators
+            val yearSeparatorColor = gridColor.copy(alpha = 0.6f)
+            visibleData.forEachIndexed { index, (label, _) ->
+                val currentYear = if (label.length >= 10) label.substring(6) else ""
+                val prevYear = if (index > 0) {
+                    val prev = visibleData[index - 1].first
+                    if (prev.length >= 10) prev.substring(6) else ""
+                } else ""
+                if (index > 0 && currentYear != prevYear) {
+                    val x = if (visibleData.size == 1) w / 2 else w * index / (visibleData.size - 1)
+                    drawLine(
+                        color = yearSeparatorColor,
+                        start = Offset(x, 0f),
+                        end = Offset(x, h),
+                        strokeWidth = 2f,
+                    )
+                    drawContext.canvas.nativeCanvas.drawText(
+                        currentYear,
+                        x,
+                        h + with(density) { 28.sp.toPx() },
+                        android.graphics.Paint().apply {
+                            color = primaryColor.hashCode()
+                            textSize = with(density) { 10.sp.toPx() }
+                            textAlign = android.graphics.Paint.Align.CENTER
+                            isFakeBoldText = true
+                        },
+                    )
+                }
+                if (index == 0 && currentYear.isNotEmpty()) {
+                    val x = if (visibleData.size == 1) w / 2 else w * 0f / (visibleData.size - 1)
+                    drawContext.canvas.nativeCanvas.drawText(
+                        currentYear,
+                        x + with(density) { 16.dp.toPx() },
+                        h + with(density) { 28.sp.toPx() },
+                        android.graphics.Paint().apply {
+                            color = primaryColor.hashCode()
+                            textSize = with(density) { 10.sp.toPx() }
+                            textAlign = android.graphics.Paint.Align.CENTER
+                            isFakeBoldText = true
+                        },
+                    )
+                }
+            }
+
             // Line path
             val path = Path()
-            val points = data.mapIndexed { index, (_, value) ->
-                val x = if (data.size == 1) w / 2 else w * index / (data.size - 1)
+            val points = visibleData.mapIndexed { index, (_, value) ->
+                val x = if (visibleData.size == 1) w / 2 else w * index / (visibleData.size - 1)
                 val y = h - ((value - minVal) / range * h).toFloat()
                 Offset(x, y)
             }
@@ -169,17 +246,24 @@ fun LineChart(
             // Points
             points.forEachIndexed { index, point ->
                 val isSelected = index == selectedIndex
-                drawCircle(lineColor, radius = if (isSelected) 8f else 5f, center = point)
-                drawCircle(Color.White, radius = if (isSelected) 5f else 3f, center = point)
+                if (isSelected) {
+                    drawCircle(selectedDotColor.copy(alpha = 0.25f), radius = 18f, center = point)
+                    drawCircle(selectedDotColor, radius = 11f, center = point)
+                    drawCircle(Color.White, radius = 6f, center = point)
+                } else {
+                    drawCircle(lineColor, radius = 5f, center = point)
+                    drawCircle(Color.White, radius = 3f, center = point)
+                }
             }
 
             // X-axis labels (show a subset)
-            val labelStep = (data.size / 5).coerceAtLeast(1)
-            data.forEachIndexed { index, (label, _) ->
-                if (index % labelStep == 0 || index == data.lastIndex) {
-                    val x = if (data.size == 1) w / 2 else w * index / (data.size - 1)
+            val labelStep = (visibleData.size / 5).coerceAtLeast(1)
+            visibleData.forEachIndexed { index, (label, _) ->
+                if (index % labelStep == 0 || index == visibleData.lastIndex) {
+                    val x = if (visibleData.size == 1) w / 2 else w * index / (visibleData.size - 1)
+                    val displayLabel = if (label.length >= 5) label.substring(0, 5) else label
                     drawContext.canvas.nativeCanvas.drawText(
-                        label,
+                        displayLabel,
                         x,
                         h + with(density) { 14.sp.toPx() },
                         android.graphics.Paint().apply {
@@ -192,13 +276,29 @@ fun LineChart(
             }
         }
 
-        // Tooltip overlay
+        // Tooltip overlay — positioned above dot if space allows, below otherwise
         selectedIndex?.let { idx ->
-            if (idx in pointPositions.indices) {
+            if (idx in pointPositions.indices && idx in visibleData.indices) {
                 val point = pointPositions[idx]
-                val (label, value) = data[idx]
-                val tooltipX = (paddingStart + point.x - 60f).coerceAtLeast(0f)
-                val tooltipY = (paddingTop + point.y - 60f).coerceAtLeast(0f)
+                val (label, value) = visibleData[idx]
+
+                val tooltipWidthPx = with(density) { 140.dp.toPx() }
+                val tooltipHeightPx = with(density) { 58.dp.toPx() }
+                val dotGapPx = with(density) { 12.dp.toPx() }
+
+                val dotAbsX = paddingStart + point.x
+                val dotAbsY = paddingTop + point.y
+
+                // Show below dot when near the top, above otherwise
+                val tooltipY = if (point.y < tooltipHeightPx + dotGapPx) {
+                    dotAbsY + dotGapPx + 8f  // below
+                } else {
+                    dotAbsY - tooltipHeightPx - dotGapPx  // above
+                }
+
+                // Center horizontally on the dot, clamped so it stays on screen
+                val maxX = (paddingStart + canvasSize.width - tooltipWidthPx).coerceAtLeast(0f)
+                val tooltipX = (dotAbsX - tooltipWidthPx / 2f).coerceIn(0f, maxX)
 
                 ChartTooltip(
                     modifier = Modifier.offset { IntOffset(tooltipX.toInt(), tooltipY.toInt()) },
@@ -229,10 +329,19 @@ fun BarChart(
 
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val textColor = MaterialTheme.colorScheme.onSurface
+    val primaryColor = MaterialTheme.colorScheme.primary
     val density = LocalDensity.current
 
     var selectedIndex by remember { mutableStateOf<Int?>(null) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+
+    var zoomScale by remember(data) { mutableFloatStateOf(1f) }
+    var panFraction by remember(data) { mutableFloatStateOf(0f) }
+
+    val visibleCount = (data.size / zoomScale).toInt().coerceIn(3.coerceAtMost(data.size), data.size)
+    val maxStartIndex = (data.size - visibleCount).coerceAtLeast(0)
+    val startIndex = (panFraction * maxStartIndex).toInt().coerceIn(0, maxStartIndex)
+    val visibleData = if (data.size <= 1) data else data.subList(startIndex, startIndex + visibleCount)
 
     val paddingStart = with(density) { 48.dp.toPx() }
     val paddingTop = with(density) { 16.dp.toPx() }
@@ -241,38 +350,53 @@ fun BarChart(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 48.dp, end = 16.dp, top = 16.dp, bottom = 32.dp)
+                .padding(start = 48.dp, end = 16.dp, top = 16.dp, bottom = 48.dp)
                 .onSizeChanged { canvasSize = it }
                 .pointerInput(data) {
-                    detectTapGestures { tapOffset ->
-                        val w = canvasSize.width.toFloat()
-                        val h = canvasSize.height.toFloat()
-                        val maxVal = data.maxOf { maxOf(it.second, it.third) }.coerceAtLeast(1.0)
-                        val groupWidth = w / data.size
-
-                        val tappedIndex = data.indices.firstOrNull { index ->
-                            val groupX = groupWidth * index
-                            tapOffset.x >= groupX && tapOffset.x < groupX + groupWidth &&
-                                tapOffset.y >= 0f && tapOffset.y <= h
+                    coroutineScope {
+                        launch {
+                            detectTransformGestures { _, pan, gestureZoom, _ ->
+                                val newScale = (zoomScale * gestureZoom).coerceIn(1f, (data.size / 3f).coerceAtLeast(1f))
+                                zoomScale = newScale
+                                val curVisible = (data.size / newScale).toInt().coerceIn(3.coerceAtMost(data.size), data.size)
+                                val curMaxStart = (data.size - curVisible).coerceAtLeast(0)
+                                if (curMaxStart > 0 && canvasSize.width > 0) {
+                                    panFraction = (panFraction - pan.x / canvasSize.width).coerceIn(0f, 1f)
+                                }
+                                selectedIndex = null
+                            }
                         }
-                        selectedIndex = if (tappedIndex != null && tappedIndex != selectedIndex) tappedIndex else null
+                        launch {
+                            detectTapGestures { tapOffset ->
+                                val w = canvasSize.width.toFloat()
+                                val h = canvasSize.height.toFloat()
+                                val curVisibleCount = (data.size / zoomScale).toInt().coerceIn(3.coerceAtMost(data.size), data.size)
+                                val curMaxStart = (data.size - curVisibleCount).coerceAtLeast(0)
+                                val curStart = (panFraction * curMaxStart).toInt().coerceIn(0, curMaxStart)
+                                val curVisible = if (data.size <= 1) data else data.subList(curStart, curStart + curVisibleCount)
+                                val groupWidth = w / curVisible.size
+                                val tappedIndex = curVisible.indices.firstOrNull { i ->
+                                    tapOffset.x >= groupWidth * i && tapOffset.x < groupWidth * (i + 1) && tapOffset.y >= 0f && tapOffset.y <= h
+                                }
+                                selectedIndex = if (tappedIndex != null && tappedIndex != selectedIndex) tappedIndex else null
+                            }
+                        }
                     }
                 },
         ) {
             val w = size.width
             val h = size.height
-            val maxVal = data.maxOf { maxOf(it.second, it.third) }.coerceAtLeast(1.0)
-            val groupWidth = w / data.size
+            val maxVal = visibleData.maxOf { maxOf(it.second, it.third) }.coerceAtLeast(1.0)
+            val groupWidth = w / visibleData.size
             val barWidth = groupWidth * 0.35f
             val gap = groupWidth * 0.05f
 
             // Grid
-            val gridCount = 4
-            for (i in 0..gridCount) {
-                val y = h - (h * i / gridCount)
+            for (i in 0..4) {
+                val y = h - (h * i / 4)
                 drawLine(gridColor, Offset(0f, y), Offset(w, y), strokeWidth = 1f)
                 drawContext.canvas.nativeCanvas.drawText(
-                    "%.0f".format(maxVal * i / gridCount),
+                    formatAmountRsd(maxVal * i / 4),
                     -with(density) { 44.dp.toPx() },
                     y + with(density) { 4.sp.toPx() },
                     android.graphics.Paint().apply {
@@ -283,53 +407,77 @@ fun BarChart(
                 )
             }
 
-            data.forEachIndexed { index, (label, deposits, withdrawals) ->
+            // Year separators + year labels
+            val yearSepColor = gridColor.copy(alpha = 0.6f)
+            visibleData.forEachIndexed { index, (label, _, _) ->
+                val currentYear = label.takeLast(4)
+                val prevYear = if (index > 0) visibleData[index - 1].first.takeLast(4) else ""
+                if (index > 0 && currentYear != prevYear) {
+                    val x = groupWidth * index
+                    drawLine(yearSepColor, Offset(x, 0f), Offset(x, h), strokeWidth = 2f)
+                    drawContext.canvas.nativeCanvas.drawText(
+                        currentYear,
+                        x + with(density) { 4.dp.toPx() },
+                        h + with(density) { 30.sp.toPx() },
+                        android.graphics.Paint().apply {
+                            color = primaryColor.hashCode()
+                            textSize = with(density) { 10.sp.toPx() }
+                            textAlign = android.graphics.Paint.Align.LEFT
+                            isFakeBoldText = true
+                        },
+                    )
+                }
+                if (index == 0 && currentYear.isNotEmpty()) {
+                    drawContext.canvas.nativeCanvas.drawText(
+                        currentYear,
+                        groupWidth * 0.5f,
+                        h + with(density) { 30.sp.toPx() },
+                        android.graphics.Paint().apply {
+                            color = primaryColor.hashCode()
+                            textSize = with(density) { 10.sp.toPx() }
+                            textAlign = android.graphics.Paint.Align.CENTER
+                            isFakeBoldText = true
+                        },
+                    )
+                }
+            }
+
+            // Bars + month labels
+            val labelStep = (visibleData.size / 5).coerceAtLeast(1)
+            visibleData.forEachIndexed { index, (label, deposits, withdrawals) ->
                 val groupX = groupWidth * index + groupWidth * 0.1f
-
-                // Deposit bar
                 val depHeight = (deposits / maxVal * h).toFloat()
-                drawRect(
-                    savingsGreen,
-                    topLeft = Offset(groupX, h - depHeight),
-                    size = Size(barWidth, depHeight),
-                )
-
-                // Withdrawal bar
+                drawRect(savingsGreen, topLeft = Offset(groupX, h - depHeight), size = Size(barWidth, depHeight))
                 val wdHeight = (withdrawals / maxVal * h).toFloat()
-                drawRect(
-                    withdrawalRed,
-                    topLeft = Offset(groupX + barWidth + gap, h - wdHeight),
-                    size = Size(barWidth, wdHeight),
-                )
-
-                // Label
-                drawContext.canvas.nativeCanvas.drawText(
-                    label,
-                    groupX + barWidth,
-                    h + with(density) { 14.sp.toPx() },
-                    android.graphics.Paint().apply {
-                        color = textColor.hashCode()
-                        textSize = with(density) { 8.sp.toPx() }
-                        textAlign = android.graphics.Paint.Align.CENTER
-                    },
-                )
+                drawRect(withdrawalRed, topLeft = Offset(groupX + barWidth + gap, h - wdHeight), size = Size(barWidth, wdHeight))
+                if (index % labelStep == 0 || index == visibleData.lastIndex) {
+                    drawContext.canvas.nativeCanvas.drawText(
+                        label.take(3),
+                        groupX + barWidth,
+                        h + with(density) { 14.sp.toPx() },
+                        android.graphics.Paint().apply {
+                            color = textColor.hashCode()
+                            textSize = with(density) { 8.sp.toPx() }
+                            textAlign = android.graphics.Paint.Align.CENTER
+                        },
+                    )
+                }
             }
         }
 
-        // Tooltip overlay
+        // Tooltip overlay — clamped to stay within chart bounds
         selectedIndex?.let { idx ->
-            if (idx in data.indices && canvasSize.width > 0) {
+            if (idx in visibleData.indices && canvasSize.width > 0) {
                 val w = canvasSize.width.toFloat()
-                val groupWidth = w / data.size
-                val (label, deposits, withdrawals) = data[idx]
-                val tooltipX = (paddingStart + groupWidth * idx + groupWidth * 0.1f).coerceAtLeast(0f)
-                val tooltipY = paddingTop
-
-                ChartTooltip(
-                    modifier = Modifier.offset { IntOffset(tooltipX.toInt(), tooltipY.toInt()) },
-                ) {
+                val groupWidth = w / visibleData.size
+                val (label, deposits, withdrawals) = visibleData[idx]
+                val tooltipWidthPx = with(density) { 180.dp.toPx() }
+                val rawX = paddingStart + groupWidth * idx + groupWidth * 0.1f
+                val maxX = (paddingStart + canvasSize.width - tooltipWidthPx).coerceAtLeast(0f)
+                val tooltipX = rawX.coerceIn(0f, maxX)
+                ChartTooltip(modifier = Modifier.offset { IntOffset(tooltipX.toInt(), paddingTop.toInt()) }) {
                     Column {
-                        Text(text = label, style = MaterialTheme.typography.labelMedium)
+                        Text(label, style = MaterialTheme.typography.labelMedium)
                         Text(
                             text = "Deposits: ${formatAmountRsd(deposits)} RSD",
                             style = MaterialTheme.typography.bodySmall,
@@ -442,7 +590,10 @@ fun PieChart(
                     val tp = tapPosition ?: return@let
                     // Position tooltip near the tap, offset by padding
                     val padPx = with(LocalDensity.current) { 16.dp.toPx() }
-                    val tooltipX = (padPx + tp.x - 50f).coerceAtLeast(0f)
+                    val tooltipWidthPx = with(LocalDensity.current) { 160.dp.toPx() }
+                    val rawX = padPx + tp.x - tooltipWidthPx / 2f
+                    val maxX = (with(LocalDensity.current) { 16.dp.toPx() } + pieCenterAndRadius!!.first * 2 - tooltipWidthPx).coerceAtLeast(0f)
+                    val tooltipX = rawX.coerceIn(0f, maxX)
                     val tooltipY = (padPx + tp.y - 70f).coerceAtLeast(0f)
 
                     ChartTooltip(
@@ -537,6 +688,186 @@ fun HorizontalComparisonBar(
         }
     }
 }
+
+
+@Composable
+fun StackedAreaChart(
+    data: List<Triple<String, Double, Double>>,
+    modifier: Modifier = Modifier,
+) {
+    if (data.isEmpty()) { EmptyChartMessage(modifier); return }
+
+    val textColor = MaterialTheme.colorScheme.onSurface
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val density = LocalDensity.current
+    var selectedIndex by remember { mutableStateOf<Int?>(null) }
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+
+    var zoomScale by remember(data) { mutableFloatStateOf(1f) }
+    var panFraction by remember(data) { mutableFloatStateOf(0f) }
+
+    val visibleCount = (data.size / zoomScale).toInt().coerceIn(5.coerceAtMost(data.size), data.size)
+    val maxStartIndex = (data.size - visibleCount).coerceAtLeast(0)
+    val startIndex = (panFraction * maxStartIndex).toInt().coerceIn(0, maxStartIndex)
+    val visibleData = if (data.size <= 1) data else data.subList(startIndex, startIndex + visibleCount)
+
+    val paddingStart = with(density) { 48.dp.toPx() }
+    val paddingTop = with(density) { 16.dp.toPx() }
+    val maxVal = visibleData.maxOf { maxOf(it.second, it.third) }.coerceAtLeast(1.0)
+
+    Box(modifier = modifier) {
+        Canvas(
+            modifier = Modifier.fillMaxSize()
+                .padding(start = 48.dp, end = 16.dp, top = 16.dp, bottom = 48.dp)
+                .onSizeChanged { canvasSize = it }
+                .pointerInput(data) {
+                    coroutineScope {
+                        launch {
+                            detectTransformGestures { _, pan, gestureZoom, _ ->
+                                val newScale = (zoomScale * gestureZoom).coerceIn(1f, (data.size / 5f).coerceAtLeast(1f))
+                                zoomScale = newScale
+                                val curVisible = (data.size / newScale).toInt().coerceIn(5.coerceAtMost(data.size), data.size)
+                                val curMaxStart = (data.size - curVisible).coerceAtLeast(0)
+                                if (curMaxStart > 0 && canvasSize.width > 0) {
+                                    panFraction = (panFraction - pan.x / canvasSize.width).coerceIn(0f, 1f)
+                                }
+                                selectedIndex = null
+                            }
+                        }
+                        launch {
+                            detectTapGestures { tap ->
+                                val w = canvasSize.width.toFloat()
+                                val curVisibleCount = (data.size / zoomScale).toInt().coerceIn(5.coerceAtMost(data.size), data.size)
+                                val curMaxStart = (data.size - curVisibleCount).coerceAtLeast(0)
+                                val curStart = (panFraction * curMaxStart).toInt().coerceIn(0, curMaxStart)
+                                val curVisible = if (data.size <= 1) data else data.subList(curStart, curStart + curVisibleCount)
+                                val step = if (curVisible.size > 1) w / (curVisible.size - 1) else w
+                                val idx = (tap.x / step).toInt().coerceIn(curVisible.indices)
+                                selectedIndex = if (idx != selectedIndex) idx else null
+                            }
+                        }
+                    }
+                }
+        ) {
+            val w = size.width
+            val h = size.height
+
+            for (i in 0..4) {
+                val y = h - (h * i / 4)
+                drawLine(gridColor, Offset(0f, y), Offset(w, y), strokeWidth = 1f)
+                drawContext.canvas.nativeCanvas.drawText(
+                    formatAmountRsd(maxVal * i / 4),
+                    -with(density) { 44.dp.toPx() },
+                    y + with(density) { 4.sp.toPx() },
+                    android.graphics.Paint().apply {
+                        color = textColor.hashCode()
+                        textSize = with(density) { 10.sp.toPx() }
+                        textAlign = android.graphics.Paint.Align.LEFT
+                    }
+                )
+            }
+
+            fun xOf(i: Int): Float = if (visibleData.size == 1) w / 2 else w * i / (visibleData.size - 1)
+            fun yOf(v: Double): Float = h - (v / maxVal * h).toFloat()
+
+            val depositPath = Path()
+            depositPath.moveTo(xOf(0), h)
+            visibleData.forEachIndexed { i, (_, dep, _) -> depositPath.lineTo(xOf(i), yOf(dep)) }
+            depositPath.lineTo(xOf(visibleData.lastIndex), h)
+            depositPath.close()
+            drawPath(depositPath, savingsGreen.copy(alpha = 0.35f))
+            val depositLine = Path()
+            visibleData.forEachIndexed { i, (_, dep, _) ->
+                if (i == 0) depositLine.moveTo(xOf(i), yOf(dep)) else depositLine.lineTo(xOf(i), yOf(dep))
+            }
+            drawPath(depositLine, savingsGreen, style = Stroke(width = 2f, cap = StrokeCap.Round))
+
+            val wdPath = Path()
+            wdPath.moveTo(xOf(0), h)
+            visibleData.forEachIndexed { i, (_, _, wd) -> wdPath.lineTo(xOf(i), yOf(wd)) }
+            wdPath.lineTo(xOf(visibleData.lastIndex), h)
+            wdPath.close()
+            drawPath(wdPath, withdrawalRed.copy(alpha = 0.35f))
+            val wdLine = Path()
+            visibleData.forEachIndexed { i, (_, _, wd) ->
+                if (i == 0) wdLine.moveTo(xOf(i), yOf(wd)) else wdLine.lineTo(xOf(i), yOf(wd))
+            }
+            drawPath(wdLine, withdrawalRed, style = Stroke(width = 2f, cap = StrokeCap.Round))
+
+            // Year separators + year labels (label format: "dd.MM.yy")
+            val yearSepColor = gridColor.copy(alpha = 0.6f)
+            visibleData.forEachIndexed { index, (label, _, _) ->
+                val currentYear = label.takeLast(2)
+                val prevYear = if (index > 0) visibleData[index - 1].first.takeLast(2) else ""
+                if (index > 0 && currentYear != prevYear) {
+                    val x = xOf(index)
+                    drawLine(yearSepColor, Offset(x, 0f), Offset(x, h), strokeWidth = 2f)
+                    drawContext.canvas.nativeCanvas.drawText(
+                        "'$currentYear",
+                        x + with(density) { 4.dp.toPx() },
+                        h + with(density) { 30.sp.toPx() },
+                        android.graphics.Paint().apply {
+                            color = primaryColor.hashCode()
+                            textSize = with(density) { 10.sp.toPx() }
+                            textAlign = android.graphics.Paint.Align.LEFT
+                            isFakeBoldText = true
+                        },
+                    )
+                }
+                if (index == 0 && currentYear.isNotEmpty()) {
+                    drawContext.canvas.nativeCanvas.drawText(
+                        "'$currentYear",
+                        xOf(0) + with(density) { 4.dp.toPx() },
+                        h + with(density) { 30.sp.toPx() },
+                        android.graphics.Paint().apply {
+                            color = primaryColor.hashCode()
+                            textSize = with(density) { 10.sp.toPx() }
+                            textAlign = android.graphics.Paint.Align.LEFT
+                            isFakeBoldText = true
+                        },
+                    )
+                }
+            }
+
+            // X-axis labels
+            val labelStep = (visibleData.size / 5).coerceAtLeast(1)
+            visibleData.forEachIndexed { i, (label, _, _) ->
+                if (i % labelStep == 0 || i == visibleData.lastIndex) {
+                    drawContext.canvas.nativeCanvas.drawText(
+                        label.take(5),
+                        xOf(i),
+                        h + with(density) { 14.sp.toPx() },
+                        android.graphics.Paint().apply {
+                            color = textColor.hashCode()
+                            textSize = with(density) { 9.sp.toPx() }
+                            textAlign = android.graphics.Paint.Align.CENTER
+                        }
+                    )
+                }
+            }
+        }
+
+        selectedIndex?.let { idx ->
+            if (idx in visibleData.indices && canvasSize.width > 0) {
+                val (label, dep, wd) = visibleData[idx]
+                val w = canvasSize.width.toFloat()
+                val xPos = paddingStart + (if (visibleData.size == 1) w / 2 else w * idx / (visibleData.size - 1))
+                val tooltipWidthPx = with(density) { 180.dp.toPx() }
+                val maxX = (paddingStart + canvasSize.width - tooltipWidthPx).coerceAtLeast(0f)
+                val tooltipX = xPos.coerceIn(0f, maxX)
+                ChartTooltip(modifier = Modifier.offset { IntOffset(tooltipX.toInt(), paddingTop.toInt()) }) {
+                    Column {
+                        Text(label, style = MaterialTheme.typography.labelMedium)
+                        Text("Deposits: ${formatAmountRsd(dep)} RSD", style = MaterialTheme.typography.bodySmall, color = savingsGreen)
+                        Text("Withdrawals: ${formatAmountRsd(wd)} RSD", style = MaterialTheme.typography.bodySmall, color = withdrawalRed)
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 @Composable
 private fun EmptyChartMessage(modifier: Modifier) {

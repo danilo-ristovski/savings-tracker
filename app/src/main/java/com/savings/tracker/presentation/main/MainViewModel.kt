@@ -13,6 +13,8 @@ import com.savings.tracker.domain.usecase.ApplyMonthlyFeeUseCase
 import com.savings.tracker.domain.usecase.GetBalanceUseCase
 import com.savings.tracker.domain.usecase.GetTransactionsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +34,7 @@ data class MainUiState(
     val monthlyFee: Double = 0.0,
     val categories: List<Category> = emptyList(),
     val currentTip: String? = null,
+    val autoBlurEnabled: Boolean = false,
 )
 
 @HiltViewModel
@@ -47,7 +50,15 @@ class MainViewModel @Inject constructor(
     private val _state = MutableStateFlow(MainUiState())
     val state: StateFlow<MainUiState> = _state.asStateFlow()
 
+    private val _inactivityTriggered = MutableStateFlow(false)
+    val inactivityTriggered: StateFlow<Boolean> = _inactivityTriggered.asStateFlow()
+
+    private var inactivityJob: Job? = null
+    private var autoLogoutJob: Job? = null
     private var tipIndex = -1
+
+    private val _shouldNavigateToPin = MutableStateFlow(false)
+    val shouldNavigateToPin: StateFlow<Boolean> = _shouldNavigateToPin.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -81,6 +92,13 @@ class MainViewModel @Inject constructor(
             }
         }
 
+        viewModelScope.launch {
+            preferencesManager.autoBlurEnabledFlow.collect { enabled ->
+                _state.update { it.copy(autoBlurEnabled = enabled) }
+                if (!enabled) cancelInactivityTimer()
+            }
+        }
+
         categoryRepository.getAllCategories()
             .onEach { cats ->
                 _state.update { it.copy(categories = cats) }
@@ -106,6 +124,40 @@ class MainViewModel @Inject constructor(
                 )
             )
         }
+    }
+
+    fun resetInactivityTimer() {
+        if (!_state.value.autoBlurEnabled) return
+        if (_inactivityTriggered.value) return  // dialog already showing; only explicit dismiss can clear it
+        inactivityJob?.cancel()
+        inactivityJob = viewModelScope.launch {
+            delay(15_000L)
+            _inactivityTriggered.value = true
+            // After the dialog appears, auto-logout after 60 more seconds
+            autoLogoutJob?.cancel()
+            autoLogoutJob = viewModelScope.launch {
+                delay(60_000L)
+                _shouldNavigateToPin.value = true
+            }
+        }
+    }
+
+    fun dismissInactivityDialog() {
+        autoLogoutJob?.cancel()
+        _inactivityTriggered.value = false
+        resetInactivityTimer()
+    }
+
+    fun consumeNavigateToPin() {
+        _shouldNavigateToPin.value = false
+    }
+
+    fun cancelInactivityTimer() {
+        inactivityJob?.cancel()
+        inactivityJob = null
+        autoLogoutJob?.cancel()
+        autoLogoutJob = null
+        _inactivityTriggered.value = false
     }
 
     fun showNextTip() {

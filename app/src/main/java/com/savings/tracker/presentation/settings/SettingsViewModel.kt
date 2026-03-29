@@ -5,8 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.savings.tracker.data.preferences.PreferencesManager
 import com.savings.tracker.data.security.PinEncryption
+import com.savings.tracker.domain.model.AnalysisSection
 import com.savings.tracker.domain.model.Category
+import com.savings.tracker.domain.model.CategoryType
 import com.savings.tracker.domain.model.ThemeMode
+import com.savings.tracker.presentation.trends.ChartType
 import com.savings.tracker.domain.model.Transaction
 import com.savings.tracker.domain.model.TransactionType
 import com.savings.tracker.domain.repository.CategoryRepository
@@ -37,6 +40,9 @@ data class SettingsUiState(
     val categories: List<Category> = emptyList(),
     val isBiometricEnabled: Boolean = false,
     val isShakeLogoutEnabled: Boolean = false,
+    val isAutoBlurEnabled: Boolean = false,
+    val analysisHiddenSections: Set<String> = emptySet(),
+    val hiddenChartTypes: Set<String> = emptySet(),
 )
 
 @HiltViewModel
@@ -89,6 +95,24 @@ class SettingsViewModel @Inject constructor(
         preferencesManager.shakeLogoutEnabledFlow
             .onEach { enabled ->
                 _uiState.update { it.copy(isShakeLogoutEnabled = enabled) }
+            }
+            .launchIn(viewModelScope)
+
+        preferencesManager.autoBlurEnabledFlow
+            .onEach { enabled ->
+                _uiState.update { it.copy(isAutoBlurEnabled = enabled) }
+            }
+            .launchIn(viewModelScope)
+
+        preferencesManager.analysisHiddenSectionsFlow
+            .onEach { sections ->
+                _uiState.update { it.copy(analysisHiddenSections = sections) }
+            }
+            .launchIn(viewModelScope)
+
+        preferencesManager.chartHiddenTypesFlow
+            .onEach { types ->
+                _uiState.update { it.copy(hiddenChartTypes = types) }
             }
             .launchIn(viewModelScope)
     }
@@ -198,9 +222,9 @@ class SettingsViewModel @Inject constructor(
     }
 
     // Category CRUD
-    fun addCategory(name: String, notes: String) {
+    fun addCategory(name: String, notes: String, type: CategoryType = CategoryType.ANY) {
         viewModelScope.launch {
-            categoryRepository.addCategory(Category(name = name, notes = notes))
+            categoryRepository.addCategory(Category(name = name, notes = notes, type = type))
         }
     }
 
@@ -227,6 +251,45 @@ class SettingsViewModel @Inject constructor(
     fun setShakeLogoutEnabled(enabled: Boolean) {
         viewModelScope.launch {
             preferencesManager.setShakeLogoutEnabled(enabled)
+        }
+    }
+
+    // Auto blur
+    fun setAutoBlurEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesManager.setAutoBlurEnabled(enabled)
+        }
+    }
+
+    // Chart types
+    fun toggleChartType(type: String) {
+        viewModelScope.launch {
+            val current = _uiState.value.hiddenChartTypes.toMutableSet()
+            if (type in current) current.remove(type) else current.add(type)
+            preferencesManager.setChartHiddenTypes(current)
+        }
+    }
+
+    fun setAllChartTypesVisible(visible: Boolean) {
+        viewModelScope.launch {
+            val newSet = if (visible) emptySet() else ChartType.entries.map { it.name }.toSet()
+            preferencesManager.setChartHiddenTypes(newSet)
+        }
+    }
+
+    // Analysis sections
+    fun toggleAnalysisSection(section: String) {
+        viewModelScope.launch {
+            val current = _uiState.value.analysisHiddenSections.toMutableSet()
+            if (section in current) current.remove(section) else current.add(section)
+            preferencesManager.setAnalysisHiddenSections(current)
+        }
+    }
+
+    fun setAllAnalysisSectionsVisible(visible: Boolean) {
+        viewModelScope.launch {
+            val newSet = if (visible) emptySet() else AnalysisSection.entries.map { it.name }.toSet()
+            preferencesManager.setAnalysisHiddenSections(newSet)
         }
     }
 }
