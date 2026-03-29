@@ -2,8 +2,10 @@ package com.savings.tracker.presentation.balance
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.savings.tracker.domain.model.Category
 import com.savings.tracker.domain.model.Transaction
 import com.savings.tracker.domain.model.TransactionType
+import com.savings.tracker.domain.repository.CategoryRepository
 import com.savings.tracker.domain.usecase.GetTransactionsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,19 +38,29 @@ data class MonthlyBalanceUiState(
     val yearSummary: Double = 0.0,
     val sortBy: MonthlySortBy = MonthlySortBy.MONTH,
     val sortDescending: Boolean = true,
+    val selectedMainTab: Int = 0,
+    val transactionTypeFilter: Set<TransactionType> = emptySet(),
 )
 
 @HiltViewModel
 class MonthlyBalanceViewModel @Inject constructor(
     getTransactionsUseCase: GetTransactionsUseCase,
+    categoryRepository: CategoryRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MonthlyBalanceUiState())
     val uiState: StateFlow<MonthlyBalanceUiState> = _uiState.asStateFlow()
 
+    private val _categories = MutableStateFlow<List<Category>>(emptyList())
+    val categories: StateFlow<List<Category>> = _categories.asStateFlow()
+
     private var allSummaries: List<MonthSummary> = emptyList()
 
     init {
+        categoryRepository.getAllCategories()
+            .onEach { _categories.value = it }
+            .launchIn(viewModelScope)
+
         getTransactionsUseCase()
             .onEach { transactions ->
                 val sorted = transactions.sortedBy { it.date }
@@ -99,6 +111,18 @@ class MonthlyBalanceViewModel @Inject constructor(
                 monthlySummaries = filtered.applySorting(it.sortBy, it.sortDescending),
                 yearSummary = filtered.sumOf { s -> s.netChange },
             )
+        }
+    }
+
+    fun selectMainTab(index: Int) {
+        _uiState.update { it.copy(selectedMainTab = index) }
+    }
+
+    fun toggleTransactionTypeFilter(type: TransactionType) {
+        _uiState.update { state ->
+            val current = state.transactionTypeFilter
+            val updated = if (type in current) current - type else current + type
+            state.copy(transactionTypeFilter = updated)
         }
     }
 
