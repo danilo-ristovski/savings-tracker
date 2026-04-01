@@ -45,6 +45,8 @@ class PreferencesManager @Inject constructor(
         val AUTO_BLUR_ENABLED = booleanPreferencesKey("auto_blur_enabled")
         val ANALYSIS_HIDDEN_SECTIONS = stringPreferencesKey("analysis_hidden_sections")
         val CHART_HIDDEN_TYPES = stringPreferencesKey("chart_hidden_types")
+        val TABLE_DETAIL_LEVEL = stringPreferencesKey("table_detail_level")
+        val PERSIST_DETAIL_LEVEL = booleanPreferencesKey("persist_detail_level")
     }
 
     // Encrypted PIN
@@ -199,6 +201,23 @@ class PreferencesManager @Inject constructor(
 
     suspend fun setChartHiddenTypes(types: Set<String>) {
         context.dataStore.edit { it[Keys.CHART_HIDDEN_TYPES] = types.joinToString(",") }
+    }
+
+    // Table Detail Level
+    val tableDetailLevelFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.TABLE_DETAIL_LEVEL] ?: "SIMPLE"
+    }
+
+    suspend fun setTableDetailLevel(value: String) {
+        context.dataStore.edit { prefs -> prefs[Keys.TABLE_DETAIL_LEVEL] = value }
+    }
+
+    val persistDetailLevelFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[Keys.PERSIST_DETAIL_LEVEL] ?: false
+    }
+
+    suspend fun setPersistDetailLevel(value: Boolean) {
+        context.dataStore.edit { prefs -> prefs[Keys.PERSIST_DETAIL_LEVEL] = value }
     }
 
     // Clear All

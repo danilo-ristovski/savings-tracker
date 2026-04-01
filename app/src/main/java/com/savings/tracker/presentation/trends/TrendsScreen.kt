@@ -37,7 +37,15 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Notes
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -92,12 +100,13 @@ import com.savings.tracker.domain.model.AnalysisSection
 import com.savings.tracker.domain.model.CategoryType
 import com.savings.tracker.domain.model.Transaction
 import com.savings.tracker.domain.model.TransactionType
+import com.savings.tracker.presentation.balance.MonthlyBalanceViewModel
+import com.savings.tracker.presentation.balance.MonthlyOverviewContent
 import com.savings.tracker.presentation.components.BarChart
 import com.savings.tracker.presentation.components.HorizontalComparisonBar
 import com.savings.tracker.presentation.components.LineChart
 import com.savings.tracker.presentation.components.PieChart
 import com.savings.tracker.presentation.components.StackedAreaChart
-import com.savings.tracker.presentation.components.BarChart
 import com.savings.tracker.presentation.main.TransactionDialog
 import com.savings.tracker.presentation.main.formatAmountRsd
 import com.savings.tracker.presentation.theme.feeOrange
@@ -110,6 +119,8 @@ import java.time.format.TextStyle as JavaTextStyle
 import java.util.Locale
 
 private val tabs = listOf("Table", "Charts", "Analysis")
+
+private enum class DetailLevel { SIMPLE, SUMMARY, DETAILED }
 private val dateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy.")
 private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private fun fmtAmt(v: Double) = formatAmountRsd(v)
@@ -208,6 +219,12 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
     }
     val isFilterActive = uiState.filterType != null || uiState.filterCategoryIds.isNotEmpty() || uiState.filterNoCategory || uiState.filterYear != null
     var showFilterSheet by remember { mutableStateOf(false) }
+    var showDetailSheet by remember { mutableStateOf(false) }
+    val detailLevel = remember(uiState.tableDetailLevel) {
+        runCatching { DetailLevel.valueOf(uiState.tableDetailLevel) }.getOrDefault(DetailLevel.SIMPLE)
+    }
+    val monthlyVm: MonthlyBalanceViewModel = hiltViewModel()
+    val monthlyUiState by monthlyVm.uiState.collectAsState()
 
     Column(
         modifier = Modifier
@@ -218,11 +235,11 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
                 }
             }
     ) {
-        // Search row with filter button
+        // Toolbar: always visible across all view levels
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedTextField(
@@ -240,9 +257,7 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
                 modifier = Modifier.weight(1f),
             )
             IconButton(onClick = { showFilterSheet = true }) {
-                BadgedBox(
-                    badge = { if (isFilterActive) Badge() }
-                ) {
+                BadgedBox(badge = { if (isFilterActive) Badge() }) {
                     Icon(
                         Icons.Default.FilterList,
                         contentDescription = "Filters",
@@ -250,7 +265,38 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
                     )
                 }
             }
+            // Expand/collapse all — only visible in Detailed view
+            if (detailLevel == DetailLevel.DETAILED) {
+                val allMonths = monthlyUiState.monthlySummaries.map { it.yearMonth }
+                val allExpanded = allMonths.isNotEmpty() && allMonths.all { it in monthlyUiState.expandedMonths }
+                IconButton(onClick = {
+                    if (allExpanded) monthlyVm.collapseAllMonths()
+                    else monthlyVm.expandAllMonths(allMonths)
+                }) {
+                    Icon(
+                        if (allExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                        contentDescription = if (allExpanded) "Collapse all" else "Expand all",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            IconButton(onClick = { showDetailSheet = true }) {
+                Icon(
+                    Icons.Default.Tune,
+                    contentDescription = "View level",
+                    tint = if (detailLevel != DetailLevel.SIMPLE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
+
+        if (detailLevel != DetailLevel.SIMPLE) {
+            val initialTab = if (detailLevel == DetailLevel.SUMMARY) 0 else 1
+            MonthlyOverviewContent(
+                viewModel = monthlyVm,
+                initialTab = initialTab,
+                showTabSwitcher = false,
+            )
+        } else {
 
         Text(
             text = if (rows.isEmpty()) "No transactions" else "${rows.size} transaction${if (rows.size == 1) "" else "s"}",
@@ -419,6 +465,7 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
         }
         } // end Box
         } // end else (rows not empty)
+        } // end else (simple view)
     }
 
     // Delete confirmation dialog
@@ -451,6 +498,80 @@ private fun TableTab(viewModel: TrendsViewModel, snackbarHostState: SnackbarHost
                 }
             },
         )
+    }
+
+    // Detail level bottom sheet
+    if (showDetailSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showDetailSheet = false },
+            sheetState = sheetState,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "View level",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                DetailLevelOption(
+                    icon = Icons.Default.List,
+                    title = "Simple",
+                    description = "All transactions in a flat table",
+                    tooltip = "Shows every transaction in a chronological table. Ideal for searching, sorting, filtering, and reviewing individual entries.",
+                    selected = detailLevel == DetailLevel.SIMPLE,
+                    onClick = { viewModel.setTableDetailLevel(DetailLevel.SIMPLE.name); showDetailSheet = false },
+                )
+                DetailLevelOption(
+                    icon = Icons.Default.BarChart,
+                    title = "Monthly Summary",
+                    description = "Deposits, withdrawals and net change per month",
+                    tooltip = "Shows monthly totals grouped by year — deposits, withdrawals, and net balance change per month. Great for spotting savings trends at a glance.",
+                    selected = detailLevel == DetailLevel.SUMMARY,
+                    onClick = { viewModel.setTableDetailLevel(DetailLevel.SUMMARY.name); showDetailSheet = false },
+                )
+                DetailLevelOption(
+                    icon = Icons.Default.CalendarMonth,
+                    title = "Monthly Detailed",
+                    description = "Individual transactions grouped by month",
+                    tooltip = "Shows every transaction grouped by month with notes and categories. Only current month is expanded by default — tap any month header to collapse or expand it.",
+                    selected = detailLevel == DetailLevel.DETAILED,
+                    onClick = { viewModel.setTableDetailLevel(DetailLevel.DETAILED.name); showDetailSheet = false },
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Remember choice",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            "Restore this view level on next app open",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    androidx.compose.material3.Switch(
+                        checked = uiState.persistDetailLevel,
+                        onCheckedChange = { viewModel.setPersistDetailLevel(it) },
+                    )
+                }
+            }
+        }
     }
 
     // Filter bottom sheet
@@ -886,6 +1007,7 @@ private fun AnalysisTab(viewModel: TrendsViewModel) {
 
         if (AnalysisSection.MONTHLY_BREAKDOWN.name !in uiState.hiddenAnalysisSections) {
         item {
+            var expandedMonthlySummaryKeys by remember { mutableStateOf(emptySet<String>()) }
             AnalysisCard("Monthly Summary", onInfo = { analysisInfoDialog = "Monthly Summary" to (analysisSectionInfo["Monthly Summary"] ?: "") }) {
                 val data = viewModel.monthlyData
                 if (data.isEmpty()) {
@@ -895,36 +1017,61 @@ private fun AnalysisTab(viewModel: TrendsViewModel) {
                         val diff = pair.first - pair.second
                         val diffColor = if (diff >= 0) savingsGreen else withdrawalRed
                         val diffSign = if (diff >= 0) "+" else "-"
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                        ) {
+                        val isExpanded = month in expandedMonthlySummaryKeys
+                        Column(modifier = Modifier.fillMaxWidth()) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        expandedMonthlySummaryKeys = if (isExpanded)
+                                            expandedMonthlySummaryKeys - month
+                                        else
+                                            expandedMonthlySummaryKeys + month
+                                    }
+                                    .padding(vertical = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(month, style = MaterialTheme.typography.bodyMedium)
-                                Row {
+                                Text(month, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                                Icon(
+                                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                            AnimatedVisibility(
+                                visible = isExpanded,
+                                enter = expandVertically(),
+                                exit = shrinkVertically(),
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 8.dp, bottom = 6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Text(
+                                            "+${fmtAmt(pair.first)} RSD",
+                                            color = savingsGreen,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                        Text(
+                                            "-${fmtAmt(pair.second)} RSD",
+                                            color = withdrawalRed,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
                                     Text(
-                                        "+${fmtAmt(pair.first)}",
-                                        color = savingsGreen,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        "-${fmtAmt(pair.second)}",
-                                        color = withdrawalRed,
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        text = "Net: $diffSign${fmtAmt(kotlin.math.abs(diff))} RSD",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = diffColor,
                                     )
                                 }
                             }
-                            Text(
-                                text = "Net: $diffSign${fmtAmt(kotlin.math.abs(diff))} RSD",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = diffColor,
-                            )
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                         }
                     }
                 }
@@ -1094,6 +1241,73 @@ private fun EmptyMessage(text: String, icon: androidx.compose.ui.graphics.vector
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DetailLevelOption(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    description: String,
+    tooltip: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = {
+            PlainTooltip {
+                Text(
+                    tooltip,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        state = rememberTooltipState(),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+            colors = CardDefaults.cardColors(
+                containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    )
+                    Text(
+                        description,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (selected) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
         }
     }
 }

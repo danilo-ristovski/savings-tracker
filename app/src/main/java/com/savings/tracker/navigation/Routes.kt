@@ -7,5 +7,4 @@ object Routes {
     const val SETTINGS = "settings"
     const val TRENDS = "trends"
     const val TRASH = "trash"
-    const val MONTHLY_BALANCE = "monthly_balance"
 }

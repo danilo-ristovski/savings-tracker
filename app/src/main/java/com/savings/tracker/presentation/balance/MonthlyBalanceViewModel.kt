@@ -40,6 +40,7 @@ data class MonthlyBalanceUiState(
     val sortDescending: Boolean = true,
     val selectedMainTab: Int = 0,
     val transactionTypeFilter: Set<TransactionType> = emptySet(),
+    val expandedMonths: Set<YearMonth> = emptySet(),
 )
 
 @HiltViewModel
@@ -91,12 +92,18 @@ class MonthlyBalanceViewModel @Inject constructor(
 
                 _uiState.update { state ->
                     val filtered = summaries.filter { s -> s.yearMonth.year == selectedYear }
+                    val initialExpanded = if (state.expandedMonths.isEmpty()) {
+                        defaultExpandedFor(selectedYear, filtered)
+                    } else {
+                        state.expandedMonths
+                    }
                     state.copy(
                         isLoading = false,
                         years = years,
                         selectedYear = selectedYear,
                         monthlySummaries = filtered.applySorting(state.sortBy, state.sortDescending),
                         yearSummary = filtered.sumOf { s -> s.netChange },
+                        expandedMonths = initialExpanded,
                     )
                 }
             }
@@ -110,8 +117,24 @@ class MonthlyBalanceViewModel @Inject constructor(
                 selectedYear = year,
                 monthlySummaries = filtered.applySorting(it.sortBy, it.sortDescending),
                 yearSummary = filtered.sumOf { s -> s.netChange },
+                expandedMonths = defaultExpandedFor(year, filtered),
             )
         }
+    }
+
+    fun toggleExpandMonth(ym: YearMonth) {
+        _uiState.update { state ->
+            val updated = if (ym in state.expandedMonths) state.expandedMonths - ym else state.expandedMonths + ym
+            state.copy(expandedMonths = updated)
+        }
+    }
+
+    fun expandAllMonths(months: List<YearMonth>) {
+        _uiState.update { it.copy(expandedMonths = months.toSet()) }
+    }
+
+    fun collapseAllMonths() {
+        _uiState.update { it.copy(expandedMonths = emptySet()) }
     }
 
     fun selectMainTab(index: Int) {
@@ -138,6 +161,11 @@ class MonthlyBalanceViewModel @Inject constructor(
             )
         }
     }
+}
+
+private fun defaultExpandedFor(year: Int?, summaries: List<MonthSummary>): Set<YearMonth> {
+    val now = YearMonth.now()
+    return if (year == now.year && summaries.any { it.yearMonth == now }) setOf(now) else emptySet()
 }
 
 private fun List<MonthSummary>.applySorting(sortBy: MonthlySortBy, descending: Boolean): List<MonthSummary> {

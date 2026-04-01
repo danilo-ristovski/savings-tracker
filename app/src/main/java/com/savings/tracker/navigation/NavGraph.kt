@@ -25,7 +25,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.savings.tracker.data.preferences.PreferencesManager
 import com.savings.tracker.data.sensor.ShakeDetector
-import com.savings.tracker.presentation.balance.MonthlyBalanceScreen
 import com.savings.tracker.presentation.main.MainScreen
 import com.savings.tracker.presentation.pin.PinLoginScreen
 import com.savings.tracker.presentation.pin.PinSetupScreen
@@ -143,9 +142,6 @@ fun NavGraph(startDestination: String, preferencesManager: PreferencesManager) {
                 TrendsScreen(navController = navController)
             }
 
-            composable(Routes.MONTHLY_BALANCE) {
-                MonthlyBalanceScreen(navController = navController)
-            }
         }
     }
 }

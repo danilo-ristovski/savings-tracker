@@ -13,6 +13,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
@@ -51,6 +52,8 @@ data class TrendsUiState(
     val filterCategoryIds: Set<Long> = emptySet(),
     val filterNoCategory: Boolean = false,
     val hiddenChartTypes: Set<String> = emptySet(),
+    val tableDetailLevel: String = "SIMPLE",
+    val persistDetailLevel: Boolean = false,
 )
 
 @HiltViewModel
@@ -110,6 +113,32 @@ class TrendsViewModel @Inject constructor(
                 _uiState.update { it.copy(hiddenChartTypes = types) }
             }
             .launchIn(viewModelScope)
+
+        preferencesManager.persistDetailLevelFlow
+            .onEach { persist ->
+                _uiState.update { it.copy(persistDetailLevel = persist) }
+            }
+            .launchIn(viewModelScope)
+
+        // Load persisted detail level only if persist toggle is on
+        viewModelScope.launch {
+            val persist = preferencesManager.persistDetailLevelFlow.first()
+            val level = if (persist) preferencesManager.tableDetailLevelFlow.first() else "SIMPLE"
+            _uiState.update { it.copy(tableDetailLevel = level) }
+        }
+    }
+
+    fun setTableDetailLevel(level: String) {
+        _uiState.update { it.copy(tableDetailLevel = level) }
+        viewModelScope.launch { preferencesManager.setTableDetailLevel(level) }
+    }
+
+    fun setPersistDetailLevel(persist: Boolean) {
+        _uiState.update { it.copy(persistDetailLevel = persist) }
+        viewModelScope.launch {
+            preferencesManager.setPersistDetailLevel(persist)
+            if (persist) preferencesManager.setTableDetailLevel(_uiState.value.tableDetailLevel)
+        }
     }
 
     fun selectTab(index: Int) {

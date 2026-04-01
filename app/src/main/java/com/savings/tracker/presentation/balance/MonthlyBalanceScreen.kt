@@ -1,5 +1,8 @@
 package com.savings.tracker.presentation.balance
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -13,15 +16,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -29,18 +30,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,176 +46,108 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.navigation.NavController
 import com.savings.tracker.domain.model.TransactionType
 import com.savings.tracker.presentation.main.formatAmountRsd
 import com.savings.tracker.presentation.theme.feeOrange
 import com.savings.tracker.presentation.theme.savingsGreen
 import com.savings.tracker.presentation.theme.withdrawalRed
+import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
+// ─── Public entry point ───────────────────────────────────────────────────────
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MonthlyBalanceScreen(
-    navController: NavController,
+fun MonthlyOverviewContent(
     viewModel: MonthlyBalanceViewModel = hiltViewModel(),
+    modifier: Modifier = Modifier,
+    initialTab: Int = 0,
+    showTabSwitcher: Boolean = true,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val categoryMap = remember(categories) { categories.associate { it.id to it.name } }
     var drilldownMonth by remember { mutableStateOf<MonthSummary?>(null) }
-
     val yearListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Monthly Overview") },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
+    LaunchedEffect(initialTab) { viewModel.selectMainTab(initialTab) }
+
+    if (uiState.isLoading) {
+        Box(modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+        return
+    }
+
+    if (uiState.monthlySummaries.isEmpty() && uiState.years.isEmpty()) {
+        Box(modifier.fillMaxSize(), Alignment.Center) {
+            Text(
+                "No transactions yet",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        },
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
+        }
+        return
+    }
+
+    Column(modifier.fillMaxSize()) {
+        // Shared year selector
+        LazyRow(
+            state = yearListState,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(uiState.years.size) { i ->
+                val year = uiState.years[i]
+                FilterChip(
+                    selected = year == uiState.selectedYear,
+                    onClick = {
+                        viewModel.selectYear(year)
+                        coroutineScope.launch { yearListState.revealItem(i) }
+                    },
+                    label = { Text(year.toString()) },
+                )
+            }
+        }
+
+        // Sub-tab selector (hidden when locked to a specific tab)
+        if (showTabSwitcher) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(
                     selected = uiState.selectedMainTab == 0,
                     onClick = { viewModel.selectMainTab(0) },
-                    icon = { Icon(Icons.Default.BarChart, contentDescription = null) },
                     label = { Text("Overview") },
                 )
-                NavigationBarItem(
+                FilterChip(
                     selected = uiState.selectedMainTab == 1,
                     onClick = { viewModel.selectMainTab(1) },
-                    icon = { Icon(Icons.Default.List, contentDescription = null) },
                     label = { Text("Transactions") },
                 )
             }
-        },
-    ) { padding ->
-        if (uiState.isLoading) {
-            Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) {
-                CircularProgressIndicator()
-            }
-            return@Scaffold
         }
 
-        if (uiState.monthlySummaries.isEmpty() && uiState.years.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) {
-                Text(
-                    "No transactions yet",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            return@Scaffold
-        }
-
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            // Shared year selector — present on both tabs
-            LazyRow(
-                state = yearListState,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(uiState.years.size) { i ->
-                    val year = uiState.years[i]
-                    FilterChip(
-                        selected = year == uiState.selectedYear,
-                        onClick = {
-                            viewModel.selectYear(year)
-                            coroutineScope.launch { yearListState.revealItem(i) }
-                        },
-                        label = { Text(year.toString()) },
-                    )
-                }
-            }
-
-            when (uiState.selectedMainTab) {
-                0 -> OverviewTab(
-                    uiState = uiState,
-                    viewModel = viewModel,
-                    onMonthClick = { drilldownMonth = it },
-                )
-                1 -> TransactionsTab(
-                    uiState = uiState,
-                    viewModel = viewModel,
-                    categoryMap = categoryMap,
-                )
-            }
+        when (uiState.selectedMainTab) {
+            0 -> OverviewTab(uiState = uiState, viewModel = viewModel, onMonthClick = { drilldownMonth = it })
+            1 -> TransactionsTab(uiState = uiState, viewModel = viewModel, categoryMap = categoryMap)
         }
     }
 
     // Month drilldown dialog
     drilldownMonth?.let { summary ->
-        val monthName = summary.yearMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
-        val netColor = if (summary.netChange >= 0) savingsGreen else withdrawalRed
-        val netSign = if (summary.netChange >= 0) "+" else "-"
-        val txnFmt = remember { DateTimeFormatter.ofPattern("dd.MM.yyyy. HH:mm") }
-
-        var runBal = summary.startingBalance
-        val rows = summary.transactions.map { txn ->
-            val delta = if (txn.type == TransactionType.DEPOSIT) txn.amount else -txn.amount
-            runBal += delta
-            Triple(txn, delta, runBal)
-        }
-
-        AlertDialog(
-            onDismissRequest = { drilldownMonth = null },
-            title = { Text("$monthName ${summary.yearMonth.year}") },
-            text = {
-                Column {
-                    DetailRow("Starting balance", "${formatAmountRsd(summary.startingBalance)} RSD")
-                    DetailRow(
-                        "Change",
-                        "$netSign${formatAmountRsd(kotlin.math.abs(summary.netChange))} RSD",
-                        netColor,
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    DetailRow("Ending balance", "${formatAmountRsd(summary.endingBalance)} RSD")
-                    Spacer(Modifier.height(8.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(4.dp))
-                    Text("Transactions", style = MaterialTheme.typography.labelMedium)
-                    LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
-                        items(rows) { (txn, delta, balAfter) ->
-                            val amtColor = when (txn.type) {
-                                TransactionType.DEPOSIT -> savingsGreen
-                                TransactionType.FEE -> feeOrange
-                                else -> withdrawalRed
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(txn.date.format(txnFmt), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1.4f))
-                                Text(
-                                    "${if (delta >= 0) "+" else "-"}${formatAmountRsd(kotlin.math.abs(delta))}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = amtColor,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text("${formatAmountRsd(balAfter)} RSD", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1.1f))
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { drilldownMonth = null }) { Text("Close") } },
-        )
+        MonthDrilldownDialog(summary = summary, onDismiss = { drilldownMonth = null })
     }
 }
 
-// ─── Overview tab ────────────────────────────────────────────────────────────
+// ─── Overview tab ─────────────────────────────────────────────────────────────
 
 @Composable
 private fun OverviewTab(
@@ -236,10 +164,10 @@ private fun OverviewTab(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // Year net card
+        // Year net summary card
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -287,12 +215,7 @@ private fun OverviewTab(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(monthName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Text(
-                            "$netSign${formatAmountRsd(kotlin.math.abs(summary.netChange))} RSD",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = netColor,
-                        )
+                        Text("$netSign${formatAmountRsd(kotlin.math.abs(summary.netChange))} RSD", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = netColor)
                     }
                     Spacer(Modifier.height(8.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -331,17 +254,12 @@ private fun TransactionsTab(
     val dateFmt = remember { DateTimeFormatter.ofPattern("dd.MM.yyyy.") }
     val timeFmt = remember { DateTimeFormatter.ofPattern("HH:mm") }
 
-    // All txns for the selected year's months, grouped newest-first
     val allTxnsForYear = uiState.monthlySummaries
         .sortedByDescending { it.yearMonth }
         .flatMap { summary -> summary.transactions.map { summary to it } }
 
-    // Determine which types actually exist so we only show relevant chips
-    val existingTypes = remember(allTxnsForYear) {
-        allTxnsForYear.map { (_, txn) -> txn.type }.toSet()
-    }
-
-    val activeFilter = uiState.transactionTypeFilter  // empty set = show all
+    val existingTypes = remember(allTxnsForYear) { allTxnsForYear.map { (_, txn) -> txn.type }.toSet() }
+    val activeFilter = uiState.transactionTypeFilter
 
     val filteredTxns = if (activeFilter.isEmpty()) allTxnsForYear
     else allTxnsForYear.filter { (_, txn) -> txn.type in activeFilter }
@@ -349,8 +267,10 @@ private fun TransactionsTab(
     val grouped = filteredTxns.groupBy { (summary, _) -> summary.yearMonth }
     val months = grouped.keys.sortedDescending()
 
+    val expandedMonths = uiState.expandedMonths
+
     Column(Modifier.fillMaxSize()) {
-        // Type filter chips (multi-select)
+        // Type filter chips (multi-select, only show types that exist)
         LazyRow(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -394,137 +314,134 @@ private fun TransactionsTab(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             months.forEach { ym ->
                 val entries = grouped[ym] ?: return@forEach
                 val monthName = ym.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
+                val isExpanded = ym in expandedMonths
 
-                // Month section header
+                // Collapsible month header card
                 item(key = "header_$ym") {
                     Spacer(Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.toggleExpandMonth(ym) },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isExpanded)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant,
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                     ) {
-                        Text(
-                            text = "$monthName ${ym.year}",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        HorizontalDivider(modifier = Modifier.weight(1f))
-                        Text(
-                            text = "${entries.size}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "$monthName ${ym.year}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isExpanded) MaterialTheme.colorScheme.onPrimaryContainer
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                if (!isExpanded) {
+                                    // Collapsed summary row
+                                    val deps = entries.filter { (_, t) -> t.type == TransactionType.DEPOSIT }.sumOf { (_, t) -> t.amount }
+                                    val wds = entries.filter { (_, t) -> t.type != TransactionType.DEPOSIT }.sumOf { (_, t) -> t.amount }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Text("+${formatAmountRsd(deps)}", style = MaterialTheme.typography.bodySmall, color = savingsGreen)
+                                        Text("-${formatAmountRsd(wds)}", style = MaterialTheme.typography.bodySmall, color = withdrawalRed)
+                                    }
+                                }
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    "${entries.size}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Icon(
+                                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                 }
 
-                // Month card containing all matching transactions
+                // Expandable transaction card
                 item(key = "card_$ym") {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    AnimatedVisibility(
+                        visible = isExpanded,
+                        enter = expandVertically(),
+                        exit = shrinkVertically(),
                     ) {
-                        Column {
-                            entries.forEachIndexed { idx, (_, txn) ->
-                                val amtColor = when (txn.type) {
-                                    TransactionType.DEPOSIT -> savingsGreen
-                                    TransactionType.FEE -> feeOrange
-                                    TransactionType.WITHDRAWAL -> withdrawalRed
-                                }
-                                val amtSign = if (txn.type == TransactionType.DEPOSIT) "+" else "-"
-                                val categoryName = txn.categoryId?.let { categoryMap[it] }
-                                val typeLabel = when (txn.type) {
-                                    TransactionType.DEPOSIT -> "Deposit"
-                                    TransactionType.WITHDRAWAL -> "Withdrawal"
-                                    TransactionType.FEE -> "Fee"
-                                }
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        ) {
+                            Column {
+                                entries.forEachIndexed { idx, (_, txn) ->
+                                    val amtColor = when (txn.type) {
+                                        TransactionType.DEPOSIT -> savingsGreen
+                                        TransactionType.FEE -> feeOrange
+                                        TransactionType.WITHDRAWAL -> withdrawalRed
+                                    }
+                                    val amtSign = if (txn.type == TransactionType.DEPOSIT) "+" else "-"
+                                    val categoryName = txn.categoryId?.let { categoryMap[it] }
+                                    val typeLabel = when (txn.type) {
+                                        TransactionType.DEPOSIT -> "Deposit"
+                                        TransactionType.WITHDRAWAL -> "Withdrawal"
+                                        TransactionType.FEE -> "Fee"
+                                    }
 
-                                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.Top,
-                                    ) {
-                                        // Left: date + type/category
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                Text(
-                                                    text = txn.date.format(dateFmt),
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                )
-                                                Text(
-                                                    text = txn.date.format(timeFmt),
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                )
-                                            }
-                                            Spacer(Modifier.height(2.dp))
-                                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                // Type badge
-                                                Surface(
-                                                    color = amtColor.copy(alpha = 0.15f),
-                                                    shape = MaterialTheme.shapes.small,
+                                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.Top,
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
                                                 ) {
-                                                    Text(
-                                                        text = typeLabel,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = amtColor,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                    )
+                                                    Text(txn.date.format(dateFmt), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                                    Text(txn.date.format(timeFmt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                 }
-                                                // Category badge
-                                                if (categoryName != null) {
-                                                    Surface(
-                                                        color = MaterialTheme.colorScheme.secondaryContainer,
-                                                        shape = MaterialTheme.shapes.small,
-                                                    ) {
-                                                        Text(
-                                                            text = categoryName,
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                        )
+                                                Spacer(Modifier.height(2.dp))
+                                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    Surface(color = amtColor.copy(alpha = 0.15f), shape = MaterialTheme.shapes.small) {
+                                                        Text(typeLabel, style = MaterialTheme.typography.labelSmall, color = amtColor, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                                    }
+                                                    if (categoryName != null) {
+                                                        Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
+                                                            Text(categoryName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                                        }
                                                     }
                                                 }
                                             }
+                                            Text("$amtSign${formatAmountRsd(txn.amount)} RSD", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = amtColor)
                                         }
-
-                                        // Right: amount
-                                        Text(
-                                            text = "$amtSign${formatAmountRsd(txn.amount)} RSD",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            fontWeight = FontWeight.Bold,
-                                            color = amtColor,
-                                        )
+                                        if (txn.note.isNotBlank()) {
+                                            Spacer(Modifier.height(6.dp))
+                                            Text(txn.note, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
                                     }
 
-                                    // Note
-                                    if (txn.note.isNotBlank()) {
-                                        Spacer(Modifier.height(6.dp))
-                                        Text(
-                                            text = txn.note,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontStyle = FontStyle.Italic,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
+                                    if (idx < entries.lastIndex) {
+                                        HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                                     }
-                                }
-
-                                if (idx < entries.lastIndex) {
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(horizontal = 12.dp),
-                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    )
                                 }
                             }
                         }
@@ -537,7 +454,56 @@ private fun TransactionsTab(
     }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Drilldown dialog ─────────────────────────────────────────────────────────
+
+@Composable
+private fun MonthDrilldownDialog(summary: MonthSummary, onDismiss: () -> Unit) {
+    val monthName = summary.yearMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())
+    val netColor = if (summary.netChange >= 0) savingsGreen else withdrawalRed
+    val netSign = if (summary.netChange >= 0) "+" else "-"
+    val txnFmt = remember { DateTimeFormatter.ofPattern("dd.MM.yyyy. HH:mm") }
+
+    var runBal = summary.startingBalance
+    val rows = summary.transactions.map { txn ->
+        val delta = if (txn.type == TransactionType.DEPOSIT) txn.amount else -txn.amount
+        runBal += delta
+        Triple(txn, delta, runBal)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("$monthName ${summary.yearMonth.year}") },
+        text = {
+            Column {
+                DetailRow("Starting balance", "${formatAmountRsd(summary.startingBalance)} RSD")
+                DetailRow("Change", "$netSign${formatAmountRsd(kotlin.math.abs(summary.netChange))} RSD", netColor)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                DetailRow("Ending balance", "${formatAmountRsd(summary.endingBalance)} RSD")
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(4.dp))
+                Text("Transactions", style = MaterialTheme.typography.labelMedium)
+                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                    items(rows) { (txn, delta, balAfter) ->
+                        val amtColor = when (txn.type) {
+                            TransactionType.DEPOSIT -> savingsGreen
+                            TransactionType.FEE -> feeOrange
+                            else -> withdrawalRed
+                        }
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(txn.date.format(txnFmt), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1.4f))
+                            Text("${if (delta >= 0) "+" else "-"}${formatAmountRsd(kotlin.math.abs(delta))}", style = MaterialTheme.typography.bodySmall, color = amtColor, modifier = Modifier.weight(1f))
+                            Text("${formatAmountRsd(balAfter)} RSD", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1.1f))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 private suspend fun androidx.compose.foundation.lazy.LazyListState.revealItem(index: Int) {
     val info = layoutInfo
@@ -559,10 +525,7 @@ private fun DetailRow(
     value: String,
     valueColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, color = valueColor)
     }
